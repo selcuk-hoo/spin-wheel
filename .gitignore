@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+simulation_data.txt
+poincare_data.txt
+rf.txt
