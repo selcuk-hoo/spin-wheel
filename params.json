@@ -8,7 +8,7 @@
     "theta0_hor": 0.0,
     "theta0_ver": 0.0,
     "nFODO": 24,
-    "t2": 1e-4,
+    "t2": 0.0001,
     "dt": 1e-11,
     "t_pr": 1000,
     "return_steps": 10000,
