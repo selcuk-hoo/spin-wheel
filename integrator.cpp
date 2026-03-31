@@ -169,7 +169,7 @@ void gl4_step(double t, double* y, const double* field_params, double h, int dim
     compute_rhs(t, y, field_params, k1, dim);
     for (int i = 0; i < dim; ++i) k2[i] = k1[i];
 
-    for (int iter = 0; iter < 4; ++iter) {
+    for (int iter = 0; iter < 2; ++iter) {
         for (int i = 0; i < dim; ++i) {
             y1[i] = y[i] + h * (a11*k1[i] + a12*k2[i]);
             y2[i] = y[i] + h * (a21*k1[i] + a22*k2[i]);
