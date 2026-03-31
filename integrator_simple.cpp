@@ -1,0 +1,366 @@
+#include <iostream>
+#include <fstream>
+#include <iomanip>
+#include <cmath>
+#include <vector>
+
+extern "C" {
+
+const double C_LIGHT = 299792458.0;
+/** Tek RF kovuğu: θ = 0 (x ekseni) etrafında; uzunluk sabiti alanla aynı olmalı. */
+const double RF_CAVITY_LENGTH_M = 0.5;
+const double M_P     = 1.672621777e-27;
+const double Q_E     = 1.602176565e-19;
+const double G_P     = 1.792847356;    
+const double EDM_ETA = 1.88e-15;       
+
+inline void cross_product(const double* a, const double* b, double* res) {
+    res[0] = a[1]*b[2] - a[2]*b[1];
+    res[1] = a[2]*b[0] - a[0]*b[2];
+    res[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+inline double dot_product(const double* a, const double* b) {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+// θ pozisyonuna göre quad/drift bölgesini belirle
+// in_quad=1: quad bölgesi, in_quad=0: drift bölgesi
+int is_in_quad(double theta, int nFODO, double quadLen, double R0, double& dist_from_quad_center) {
+    double theta_pos = theta;
+    if (theta_pos < 0) theta_pos += 2.0 * M_PI;
+    
+    double sector_angle = M_PI / nFODO;
+    int quad_index = (int)(theta_pos / sector_angle + 0.5);
+    if (quad_index >= 2 * nFODO) quad_index = 0;
+    
+    double quad_center_theta = quad_index * sector_angle;
+    double diff_theta = theta_pos - quad_center_theta;
+    
+    while (diff_theta > M_PI) diff_theta -= 2.0 * M_PI;
+    while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
+    
+    dist_from_quad_center = R0 * std::abs(diff_theta);
+    return (dist_from_quad_center <= quadLen / 2.0) ? 1 : 0;
+}
+
+void get_electromagnetic_fields(double t, const double* r, const double* field_params, double* E, double* B) {
+    double R0 = field_params[0];
+    double E0 = field_params[1];
+    double n  = field_params[2]; 
+    double B0ver = field_params[3];
+    double B0rad = field_params[4];
+    double B0long = field_params[5];
+    double quadK1 = field_params[6];
+    double sextK1 = field_params[7];
+    double quadSwitch = field_params[8];
+    double sextSwitch = field_params[9];
+    int nFODO = (int)(field_params[12] + 0.5);
+    double quadLen = field_params[13];
+
+    double X_g = r[0], Y_g = r[1], Z_g = r[2];
+    double R = std::sqrt(X_g*X_g + Y_g*Y_g);
+    double theta = std::atan2(Y_g, X_g);
+    double dev = R - R0; 
+
+    double E_r = 0.0, E_z = 0.0;
+    if (R > 1e-6) {
+        if (n == 1.0) {
+            E_r = E0 * R0 / R;
+        } else {
+            E_r = E0 * std::pow(R0/R, n) * (1.0 - 0.5*(n*n-1.0)*std::pow(Z_g/R, 2) + (n*n-1.0)*(n+1.0)*(n+3.0)*std::pow(Z_g/R, 4)/24.0);
+            E_z = E0 * std::pow(R0/R, n) * ((n-1.0)*(Z_g/R) - (n*n-1.0)*(n+1.0)*std::pow(Z_g/R, 3)/6.0);
+        }
+    }
+    
+    E[0] = E_r * std::cos(theta);
+    E[1] = E_r * std::sin(theta);
+    E[2] = E_z;
+
+    B[0] = -B0rad * std::cos(theta) + B0long * std::sin(theta);
+    B[1] = -B0rad * std::sin(theta) - B0long * std::cos(theta);
+    B[2] = B0ver;
+
+    if ((quadSwitch > 0.0 || sextSwitch > 0.0) && nFODO > 0 && quadLen > 0.0) {
+        double theta_pos = theta;
+        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
+        
+        double sector_angle = M_PI / nFODO; 
+        int quad_index = (int)(theta_pos / sector_angle + 0.5); 
+        if (quad_index >= 2 * nFODO) quad_index = 0;
+        
+        double quad_center_theta = quad_index * sector_angle;
+        double diff_theta = theta_pos - quad_center_theta;
+        
+        while (diff_theta > M_PI) diff_theta -= 2.0 * M_PI;
+        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
+        
+        double dist_from_center = R0 * std::abs(diff_theta);
+        
+        if (dist_from_center <= quadLen / 2.0) {
+            if (quadSwitch > 0.0) {
+                double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
+                double B_quad_r = current_K1 * Z_g;
+                double B_quad_z = current_K1 * dev;
+                B[0] += B_quad_r * std::cos(theta);
+                B[1] += B_quad_r * std::sin(theta);
+                B[2] += B_quad_z;
+            }
+            if (sextSwitch > 0.0) {
+                double current_sextK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
+                double B_sext_r = current_sextK1 * dev * Z_g; 
+                double B_sext_z = current_sextK1 * (dev*dev - Z_g*Z_g);
+                B[0] += B_sext_r * std::cos(theta);
+                B[1] += B_sext_r * std::sin(theta);
+                B[2] += B_sext_z;
+            }
+        }
+    }
+    // RF alan etkisi kaldırıldı: infinitesimal geçiş, sadece kayıt için
+}
+
+void compute_rhs(double t, const double* y, const double* field_params, double* dydt, int dim) {
+    const double* r = &y[0];
+    const double* p = &y[3];
+    const double* s = &y[6];
+    
+    double p_sq = dot_product(p, p);
+    double mc = M_P * C_LIGHT;
+    double gamma = std::sqrt(1.0 + p_sq / (mc * mc));
+    
+    double v[3], beta[3];
+    for(int i=0; i<3; ++i) {
+        v[i] = p[i] / (gamma * M_P);
+        beta[i] = v[i] / C_LIGHT;
+    }
+    
+    double E[3], B[3];
+    get_electromagnetic_fields(t, r, field_params, E, B);
+    
+    double v_cross_B[3];
+    cross_product(v, B, v_cross_B);
+    
+    double dpdt[3];
+    for(int i=0; i<3; ++i) {
+        dpdt[i] = Q_E * (E[i] + v_cross_B[i]);
+    }
+    
+    double EDMSwitch = field_params[10];
+    double beta_dot_B = dot_product(beta, B);
+    double beta_dot_E = dot_product(beta, E);
+    double beta_cross_E[3], beta_cross_B[3];
+    cross_product(beta, E, beta_cross_E);
+    cross_product(beta, B, beta_cross_B);
+    
+    double Omega[3];
+    double AMU = G_P;
+    
+    for(int i=0; i<3; ++i) {
+        double mdm_term = (B[i] * (AMU + 1.0/gamma)) 
+                        - (beta[i] * beta_dot_B * AMU * gamma/(gamma+1.0)) 
+                        - (beta_cross_E[i] * (AMU + 1.0/(gamma+1.0)) / C_LIGHT);
+                        
+        double edm_term = 0.0;
+        if (EDMSwitch > 0.0) {
+            edm_term = (beta_cross_B[i] + E[i]/C_LIGHT - beta[i]*beta_dot_E * gamma/(gamma+1.0)/C_LIGHT) 
+                       * 0.5 * EDM_ETA;
+        }
+        
+        double cross_i = (mdm_term + edm_term) * (Q_E / M_P);
+        Omega[i] = -cross_i;
+    }
+    
+    double dsdt[3];
+    cross_product(Omega, s, dsdt); 
+    
+    for(int i=0; i<3; ++i) {
+        dydt[i]   = v[i];
+        dydt[i+3] = dpdt[i];
+        dydt[i+6] = dsdt[i];
+    }
+}
+
+void gl4_step(double t, double* y, const double* field_params, double h, int dim) {
+    const double sq3 = std::sqrt(3.0) / 6.0;
+    const double c1 = 0.5 - sq3;
+    const double c2 = 0.5 + sq3;
+    const double a11 = 0.25, a12 = 0.25 - sq3;
+    const double a21 = 0.25 + sq3, a22 = 0.25;
+    const double b1 = 0.5, b2 = 0.5;
+
+    std::vector<double> k1(dim, 0.0);
+    std::vector<double> k2(dim, 0.0);
+    std::vector<double> y_tmp1(dim);
+    std::vector<double> y_tmp2(dim);
+
+    compute_rhs(t, y, field_params, k1.data(), dim);
+    for(int i=0; i<dim; ++i) k2[i] = k1[i];
+
+    int max_iter = 4;
+    for(int iter = 0; iter < max_iter; ++iter) {
+        for(int i = 0; i < dim; ++i) {
+            y_tmp1[i] = y[i] + h * (a11 * k1[i] + a12 * k2[i]);
+            y_tmp2[i] = y[i] + h * (a21 * k1[i] + a22 * k2[i]);
+        }
+        compute_rhs(t + c1 * h, y_tmp1.data(), field_params, k1.data(), dim);
+        compute_rhs(t + c2 * h, y_tmp2.data(), field_params, k2.data(), dim);
+    }
+
+    for(int i = 0; i < dim; ++i) {
+        y[i] = y[i] + h * (b1 * k1[i] + b2 * k2[i]);
+    }
+}
+
+void run_integration(double* y_init, const double* field_params, double t0, double t_end, double h, int dim, 
+                     int return_steps, double* history_out,
+                     int max_poincare, double* poincare_out, double* poincare_t, int* poincare_count) {
+    long long total_steps = (long long)((t_end - t0) / h);
+    if (total_steps <= 0) return;
+    long long save_interval = total_steps / return_steps;
+    if (save_interval == 0) save_interval = 1;
+
+    double t = t0;
+    int save_idx = 0;
+    int p_saved = 0;
+
+    double nFODO = field_params[12];
+    int target_quad = (int)(field_params[14] + 0.5);
+    double target_angle = target_quad * (M_PI / nFODO);
+
+    // İlk θ = 0 (parçacık başlangıçta θ=0 konumunda)
+    // NOT: y_init local koordinat olduğu için atan2 kullanamazdık
+    double prev_theta = 0.0;
+    double prev_theta_uw = 0.0;
+
+    const bool rf_on = (field_params[15] > 0.0);
+    std::ofstream rf_out;
+    if (rf_on) {
+        rf_out.open("rf.txt", std::ios::out | std::ios::trunc);
+        if (rf_out.is_open()) {
+            rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
+        }
+    }
+
+    double p_long_ref = 0.0;
+    bool have_p_long_ref = false;
+    
+    // İdeal parçacık hızı (momentum hatası olmadan)
+    double M2 = 0.938272046;
+    double G_P_val = 1.792847356;
+    double p_magic_base = M2 / std::sqrt(G_P_val);
+    double E_tot_ideal = std::sqrt(p_magic_base * p_magic_base + M2 * M2);
+    double beta_ideal = p_magic_base / E_tot_ideal;
+    
+    // Toplam çevre hesabı
+    double R0 = field_params[0];
+    double quadLen = field_params[13];
+    double driftLen = field_params[18];  // params.json'dan drift uzunluğu
+    double arc_circumference = 2.0 * M_PI * R0;
+    double straight_length = nFODO * 2.0 * (quadLen + driftLen);
+    double total_circumference = arc_circumference + straight_length;
+
+    double sector_angle = M_PI / nFODO;
+    // başlangıçta FODO tracking'i reset et
+    int prev_fodo_index = -1;
+
+    for (long long step = 0; step < total_steps; ++step) {
+        gl4_step(t, y_init, field_params, h, dim);
+        
+        // dtheta'yı momentum bileşeninden hesapla
+        // Az perturbe olmuş bir parçacık için: dtheta ≈ (h/R0) * (v_tang / v_total)
+        // v_tang = (p_r * R0 + R0 + x) * (dp_z/p_mag) / R0 ≈ dp_z / (R0 * β * γ)
+        // Yaklaşık: dtheta ≈ (pz/R0) * h
+        // Daha iyi: dp_z / (R0) × h (longitudinal momentum change over arc length)
+        
+        double pz = y_init[5];  // Longitudinal momentum
+        double p_total_mag = std::sqrt(y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5]);
+        
+        // Angular velocity: ω = v_tang / R_orbit
+        // For small perturbations: v_tang ≈ β*c = (pz/p_mag)*c (longitudinal is ~tangential)
+        // dθ = (β*c / R0) * dt = (pz * c) / (p_mag * R0) * dt
+        
+        double dtheta_dt = 0.0;
+        if (p_total_mag > 1e-10) {
+            dtheta_dt = (pz * C_LIGHT) / (p_total_mag * R0);  // rad/s
+        }
+        double dtheta = dtheta_dt * h;
+        
+        double cur_theta_uw = prev_theta_uw + dtheta;
+        t += h;
+
+        // Calculate current FODO index from unwrapped theta
+        // FODO hücreleri: her hücre 2π/nFODO kadar açı kaplar
+        double fodo_angle = 2.0 * M_PI / nFODO;
+        // Theta'nın 0-2π içindeki konumu
+        double theta_normalized = cur_theta_uw;
+        while (theta_normalized < 0) theta_normalized += 2.0 * M_PI;
+        while (theta_normalized >= 2.0 * M_PI) theta_normalized -= 2.0 * M_PI;
+        int cur_fodo_index = (int)(theta_normalized / fodo_angle);
+
+        // Record RF at FODO index 0 crossing
+        if (rf_on && rf_out.is_open()) {
+            // DEBUG ilk step
+            if (step < 5) {
+                std::cerr << "Step " << step << ": cur_fodo=" << cur_fodo_index 
+                         << " prev_fodo=" << prev_fodo_index << " check=" 
+                         << (cur_fodo_index == 0 && prev_fodo_index != 0) << "\n";
+            }
+            if (cur_fodo_index == 0 && prev_fodo_index != 0) {
+                double h_rf = field_params[17];
+                double omega_rev = beta_ideal * C_LIGHT / total_circumference;
+                double phi_rf_raw = h_rf * omega_rev * t;
+                // Faz [0, 2π) aralığında olmalı (synchrotron hareketi)
+                double phi_rf = phi_rf_raw;
+                while (phi_rf < 0) phi_rf += 2.0 * M_PI;
+                while (phi_rf >= 2.0 * M_PI) phi_rf -= 2.0 * M_PI;
+                
+                // Global theta kullan (cumulative)
+                double th_rf = cur_theta_uw;
+                while (th_rf < 0) th_rf += 2.0 * M_PI;
+                while (th_rf >= 2.0 * M_PI) th_rf -= 2.0 * M_PI;
+                
+                // Longitudinal momentum: sirkumferansiyel yönde
+                // Lokal koordinat: [radial, vertical, long]
+                // Momentum: [p_radial, p_vertical, p_long]
+                double p_long = y_init[5];  // p_long (sirkumferansiyel, lokal z-yönü)
+                
+                if (!have_p_long_ref) {
+                    p_long_ref = p_long;
+                    have_p_long_ref = true;
+                }
+                double dp_over_p = 0.0;
+                if (std::abs(p_long_ref) > 1e-40) {
+                    dp_over_p = (p_long - p_long_ref) / p_long_ref;
+                }
+                rf_out << std::scientific << std::setprecision(16)
+                       << t << "\t" << phi_rf << "\t" << dp_over_p << "\n";
+            }
+        }
+
+        // Update previous FODO index (always)
+        prev_fodo_index = cur_fodo_index;
+
+        double p_rel = prev_theta_uw - target_angle;
+        double c_rel = cur_theta_uw - target_angle;
+        double p_turn = std::floor(p_rel / (2.0 * M_PI));
+        double c_turn = std::floor(c_rel / (2.0 * M_PI));
+
+        if (p_turn != c_turn && p_saved < max_poincare) {
+            poincare_t[p_saved] = t;
+            for(int i=0; i<dim; ++i) {
+                poincare_out[p_saved * dim + i] = y_init[i];
+            }
+            p_saved++;
+        }
+        prev_theta_uw = cur_theta_uw;
+
+        if (step % save_interval == 0 && save_idx < return_steps) {
+            for(int i=0; i<dim; ++i) {
+                history_out[save_idx * dim + i] = y_init[i];
+            }
+            save_idx++;
+        }
+    }
+    poincare_count[0] = p_saved;
+}
+} // extern "C"
