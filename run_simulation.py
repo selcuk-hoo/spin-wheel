@@ -96,8 +96,48 @@ def main():
     print("==========================================================\n")
     print(f"Simülasyon motoru çalışıyor (Toplam Adım: {adim_sayisi:,})")
     start_time = time.time()
-    
-    sonuclar_local, poin_local, poincare_t_arr = integrate_particle(y0, t0, t_end, h, fields=alanlar, return_steps=return_steps)
+
+    try:
+        from tqdm import tqdm
+        _tqdm_ok = True
+    except ImportError:
+        _tqdm_ok = False
+
+    N_CHUNKS = 50
+    t_chunk = (t_end - t0) / N_CHUNKS
+    return_per_chunk = max(1, return_steps // N_CHUNKS)
+
+    all_hist, all_poin, all_poin_t = [], [], []
+    y_cur = list(y0)
+    theta_uw = 0.0
+
+    chunks = range(N_CHUNKS)
+    if _tqdm_ok:
+        chunks = tqdm(chunks, desc="  İlerleme", unit="adım",
+                      bar_format="{desc}: {percentage:3.0f}%|{bar:40}| [{elapsed}<{remaining}]")
+
+    for i in chunks:
+        t_s = t0 + i * t_chunk
+        t_e = t_s + t_chunk
+        hist_c, poin_c, poin_t_c, theta_uw, final_state = integrate_particle(
+            y_cur, t_s, t_e, h, fields=alanlar,
+            return_steps=return_per_chunk, prev_theta_uw=theta_uw
+        )
+        all_hist.append(hist_c)
+        if poin_c.shape[0] > 0:
+            all_poin.append(poin_c)
+            all_poin_t.append(poin_t_c)
+        y_cur = final_state.tolist()
+        if not _tqdm_ok:
+            pct = (i + 1) * 100 // N_CHUNKS
+            print(f"\r  İlerleme: %{pct:3d} |{'█' * (pct * 40 // 100):<40}|", end='', flush=True)
+
+    if not _tqdm_ok:
+        print()
+
+    sonuclar_local = np.vstack(all_hist)
+    poin_local     = np.vstack(all_poin) if all_poin else np.array([]).reshape(0, 9)
+    poincare_t_arr = np.concatenate(all_poin_t) if all_poin_t else np.array([])
     end_time = time.time()
     
     print("==================================================")

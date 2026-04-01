@@ -26,7 +26,9 @@ _lib.run_integration.argtypes = [
     ctypes.c_int,                    # max_poincare
     ctypes.POINTER(ctypes.c_double), # poincare_out
     ctypes.POINTER(ctypes.c_double), # poincare_t_out
-    ctypes.POINTER(ctypes.c_int)     # poincare_count
+    ctypes.POINTER(ctypes.c_int),    # poincare_count
+    ctypes.c_double,                 # prev_theta_uw_init
+    ctypes.POINTER(ctypes.c_double), # final_theta_uw_out
 ]
 _lib.run_integration.restype = None
 
@@ -99,7 +101,7 @@ def convert_global_to_local_matrix(history_global_np, R0, initial_z):
     
     return history_local
 
-def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000):
+def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, prev_theta_uw=0.0):
     if fields is None: fields = FieldParams()
     R0 = fields.R0
     
@@ -127,17 +129,24 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000):
     poincare_count = (ctypes.c_int * 1)(0)
     poincare_t_c = (ctypes.c_double * max_poincare)()
     
-    _lib.run_integration(y0_arr, field_arr, t0, t_end, h, 9, return_steps, history_c, max_poincare, poincare_c, poincare_t_c, poincare_count)
-    
+    final_theta_uw_c = (ctypes.c_double * 1)(0.0)
+    _lib.run_integration(y0_arr, field_arr, t0, t_end, h, 9, return_steps, history_c, max_poincare, poincare_c, poincare_t_c, poincare_count, ctypes.c_double(prev_theta_uw), final_theta_uw_c)
+
     history_np = np.ctypeslib.as_array(history_c).reshape((return_steps, 9))
     num_p = poincare_count[0]
     poincare_t_np = np.ctypeslib.as_array(poincare_t_c).copy()[:num_p]
     poincare_np = np.ctypeslib.as_array(poincare_c).reshape((max_poincare, 9))[:num_p]
-    
+
     hist_local = convert_global_to_local_matrix(history_np, R0, z)
     if num_p > 0:
         poin_local = convert_global_to_local_matrix(poincare_np, R0, z)
     else:
         poin_local = np.array([])
-        
-    return hist_local, poin_local, poincare_t_np
+
+    final_theta_uw = float(final_theta_uw_c[0])
+
+    # Extract actual final global state (y0_arr was modified in-place by C++)
+    final_global = np.array(list(y0_arr))
+    final_local_arr = convert_global_to_local_matrix(final_global.reshape(1, 9), R0, z)[0]
+
+    return hist_local, poin_local, poincare_t_np, final_theta_uw, final_local_arr

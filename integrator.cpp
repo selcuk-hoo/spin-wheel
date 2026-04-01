@@ -2,7 +2,6 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>
-#include <vector>
 
 extern "C" {
 
@@ -37,31 +36,38 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double quadLen  = field_params[13];
 
     double X_g = r[0], Y_g = r[1], Z_g = r[2];
-    double R     = std::sqrt(X_g*X_g + Y_g*Y_g);
-    double theta = std::atan2(Y_g, X_g);
-    double dev   = R - R0;
+    double R   = std::sqrt(X_g*X_g + Y_g*Y_g);
+    double dev = R - R0;
+
+    // cos/sin doğrudan X/R, Y/R — atan2+cos/sin çağrısından kaçınılır
+    double cos_th = X_g / R;
+    double sin_th = Y_g / R;
 
     double E_r = 0.0, E_z = 0.0;
     if (R > 1e-6) {
         if (n == 1.0) {
             E_r = E0 * R0 / R;
         } else {
-            E_r = E0 * std::pow(R0/R, n) * (1.0 - 0.5*(n*n-1.0)*std::pow(Z_g/R, 2)
-                + (n*n-1.0)*(n+1.0)*(n+3.0)*std::pow(Z_g/R, 4)/24.0);
-            E_z = E0 * std::pow(R0/R, n) * ((n-1.0)*(Z_g/R)
-                - (n*n-1.0)*(n+1.0)*std::pow(Z_g/R, 3)/6.0);
+            double zR  = Z_g / R;
+            double zR2 = zR * zR;
+            double pow_n = std::pow(R0/R, n);
+            E_r = E0 * pow_n * (1.0 - 0.5*(n*n-1.0)*zR2
+                + (n*n-1.0)*(n+1.0)*(n+3.0)*zR2*zR2/24.0);
+            E_z = E0 * pow_n * ((n-1.0)*zR
+                - (n*n-1.0)*(n+1.0)*zR2*zR/6.0);
         }
     }
-    E[0] = E_r * std::cos(theta);
-    E[1] = E_r * std::sin(theta);
+    E[0] = E_r * cos_th;
+    E[1] = E_r * sin_th;
     E[2] = E_z;
 
-    B[0] = -B0rad * std::cos(theta) + B0long * std::sin(theta);
-    B[1] = -B0rad * std::sin(theta) - B0long * std::cos(theta);
+    B[0] = -B0rad * cos_th + B0long * sin_th;
+    B[1] = -B0rad * sin_th - B0long * cos_th;
     B[2] = B0ver;
 
     if ((quadSwitch > 0.0 || sextSwitch > 0.0) && nFODO > 0 && quadLen > 0.0) {
-        double theta_pos = theta;
+        // Quad sektörü tespiti için atan2 sadece burada hesaplanır
+        double theta_pos = std::atan2(Y_g, X_g);
         if (theta_pos < 0) theta_pos += 2.0 * M_PI;
 
         double sector_angle = M_PI / nFODO;
@@ -77,19 +83,19 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
 
         if (dist_from_center <= quadLen / 2.0) {
             if (quadSwitch > 0.0) {
-                double current_K1  = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
-                double B_quad_r    = current_K1 * Z_g;
-                double B_quad_z    = current_K1 * dev;
-                B[0] += B_quad_r * std::cos(theta);
-                B[1] += B_quad_r * std::sin(theta);
+                double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
+                double B_quad_r   = current_K1 * Z_g;
+                double B_quad_z   = current_K1 * dev;
+                B[0] += B_quad_r * cos_th;
+                B[1] += B_quad_r * sin_th;
                 B[2] += B_quad_z;
             }
             if (sextSwitch > 0.0) {
                 double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
                 double B_sext_r    = current_sK1 * dev * Z_g;
                 double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
-                B[0] += B_sext_r * std::cos(theta);
-                B[1] += B_sext_r * std::sin(theta);
+                B[0] += B_sext_r * cos_th;
+                B[1] += B_sext_r * sin_th;
                 B[2] += B_sext_z;
             }
         }
@@ -156,24 +162,24 @@ void gl4_step(double t, double* y, const double* field_params, double h, int dim
     const double c1  = 0.5 - sq3, c2 = 0.5 + sq3;
     const double a11 = 0.25, a12 = 0.25 - sq3;
     const double a21 = 0.25 + sq3, a22 = 0.25;
-    const double b1  = 0.5, b2 = 0.5;
 
-    std::vector<double> k1(dim), k2(dim), y1(dim), y2(dim);
+    // dim her zaman 9 — heap allocation yerine stack dizileri
+    double k1[9], k2[9], y1[9], y2[9];
 
-    compute_rhs(t, y, field_params, k1.data(), dim);
+    compute_rhs(t, y, field_params, k1, dim);
     for (int i = 0; i < dim; ++i) k2[i] = k1[i];
 
-    for (int iter = 0; iter < 4; ++iter) {
+    for (int iter = 0; iter < 2; ++iter) {
         for (int i = 0; i < dim; ++i) {
             y1[i] = y[i] + h * (a11*k1[i] + a12*k2[i]);
             y2[i] = y[i] + h * (a21*k1[i] + a22*k2[i]);
         }
-        compute_rhs(t + c1*h, y1.data(), field_params, k1.data(), dim);
-        compute_rhs(t + c2*h, y2.data(), field_params, k2.data(), dim);
+        compute_rhs(t + c1*h, y1, field_params, k1, dim);
+        compute_rhs(t + c2*h, y2, field_params, k2, dim);
     }
 
     for (int i = 0; i < dim; ++i)
-        y[i] += h * (b1*k1[i] + b2*k2[i]);
+        y[i] += h * (0.5*k1[i] + 0.5*k2[i]);
 }
 
 // RF kovuğu quad indeks 0'da: theta_rf = 0 * (pi/nFODO) = 0
@@ -190,7 +196,8 @@ void run_integration(double* y_init, const double* field_params,
                      double t0, double t_end, double h, int dim,
                      int return_steps, double* history_out,
                      int max_poincare, double* poincare_out,
-                     double* poincare_t, int* poincare_count) {
+                     double* poincare_t, int* poincare_count,
+                     double prev_theta_uw_init, double* final_theta_uw_out) {
     long long total_steps = (long long)((t_end - t0) / h);
     if (total_steps <= 0) return;
     long long save_interval = total_steps / return_steps;
@@ -208,12 +215,6 @@ void run_integration(double* y_init, const double* field_params,
     double V_rf      = field_params[16];
     double h_rf      = field_params[17];  // harmonik sayı
 
-    // İdeal (magic) parçacık için devir açısal frekansı
-    // Birim dönüşümü: M_P [kg], C_LIGHT [m/s], Q_E [C] zaten tanımlı
-    // Magic momentum: p = M_P_GeV / sqrt(G_P)  →  SI: p_SI = p_GeV * 1e9 * Q_E / C_LIGHT
-    {
-        // sadece beta_magic lazım; GeV biriminde hesaplayıp beta'ya geçiyoruz
-    }
     double M_GeV   = 0.938272046;
     double p_magic = M_GeV / std::sqrt(G_P);               // GeV/c
     double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV); // GeV
@@ -233,7 +234,7 @@ void run_integration(double* y_init, const double* field_params,
     }
 
     double t           = t0;
-    double prev_theta_uw = 0.0;
+    double prev_theta_uw = prev_theta_uw_init;
     int    save_idx    = 0;
     int    p_saved     = 0;
 
@@ -312,6 +313,7 @@ void run_integration(double* y_init, const double* field_params,
         }
     }
     poincare_count[0] = p_saved;
+    if (final_theta_uw_out) *final_theta_uw_out = prev_theta_uw;
 }
 
 } // extern "C"
