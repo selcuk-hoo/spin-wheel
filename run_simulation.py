@@ -116,7 +116,9 @@ def main():
     theta_uw = 0.0
 
     if _tqdm_ok:
+        import sys
         chunk_iter = tqdm(range(N_CHUNKS), desc="  İlerleme", unit="chunk",
+                          file=sys.stdout, dynamic_ncols=True,
                           bar_format="{desc}: {percentage:3.0f}%|{bar:40}| [{elapsed}<{remaining}]")
     else:
         chunk_iter = range(N_CHUNKS)
@@ -139,7 +141,7 @@ def main():
             if t_e >= next_print_t or i == N_CHUNKS - 1:
                 elapsed = time.time() - start_time
                 pct = (i + 1) * 100 // N_CHUNKS
-                print(f"  t = {t_e*1000:.4f} ms  |  %{pct:3d}  |  {elapsed:.1f}s geçti")
+                print(f"  t = {t_e*1000:.4f} ms  |  %{pct:3d}  |  {elapsed:.1f}s geçti", flush=True)
                 while next_print_t <= t_e:
                     next_print_t += print_interval
 
