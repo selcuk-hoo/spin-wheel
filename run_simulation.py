@@ -107,16 +107,21 @@ def main():
     t_chunk = (t_end - t0) / N_CHUNKS
     return_per_chunk = max(1, return_steps // N_CHUNKS)
 
+    # Print interval: her ~0.1 ms simülasyon zamanında bir satır yaz
+    print_interval = 1e-4          # 0.1 ms
+    next_print_t   = t0 + print_interval
+
     all_hist, all_poin, all_poin_t = [], [], []
     y_cur = list(y0)
     theta_uw = 0.0
 
-    chunks = range(N_CHUNKS)
     if _tqdm_ok:
-        chunks = tqdm(chunks, desc="  İlerleme", unit="adım",
-                      bar_format="{desc}: {percentage:3.0f}%|{bar:40}| [{elapsed}<{remaining}]")
+        chunk_iter = tqdm(range(N_CHUNKS), desc="  İlerleme", unit="chunk",
+                          bar_format="{desc}: {percentage:3.0f}%|{bar:40}| [{elapsed}<{remaining}]")
+    else:
+        chunk_iter = range(N_CHUNKS)
 
-    for i in chunks:
+    for i in chunk_iter:
         t_s = t0 + i * t_chunk
         t_e = t_s + t_chunk
         hist_c, poin_c, poin_t_c, theta_uw, final_state = integrate_particle(
@@ -128,12 +133,15 @@ def main():
             all_poin.append(poin_c)
             all_poin_t.append(poin_t_c)
         y_cur = final_state.tolist()
-        if not _tqdm_ok:
-            pct = (i + 1) * 100 // N_CHUNKS
-            print(f"\r  İlerleme: %{pct:3d} |{'█' * (pct * 40 // 100):<40}|", end='', flush=True)
 
-    if not _tqdm_ok:
-        print()
+        # Her 0.1 ms simülasyon zamanı geçtiğinde (veya son adımda) bilgi yaz
+        if not _tqdm_ok:
+            if t_e >= next_print_t or i == N_CHUNKS - 1:
+                elapsed = time.time() - start_time
+                pct = (i + 1) * 100 // N_CHUNKS
+                print(f"  t = {t_e*1000:.4f} ms  |  %{pct:3d}  |  {elapsed:.1f}s geçti")
+                while next_print_t <= t_e:
+                    next_print_t += print_interval
 
     sonuclar_local = np.vstack(all_hist)
     poin_local     = np.vstack(all_poin) if all_poin else np.array([]).reshape(0, 9)
