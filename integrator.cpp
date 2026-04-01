@@ -197,7 +197,8 @@ void run_integration(double* y_init, const double* field_params,
                      int return_steps, double* history_out,
                      int max_poincare, double* poincare_out,
                      double* poincare_t, int* poincare_count,
-                     double prev_theta_uw_init, double* final_theta_uw_out) {
+                     double prev_theta_uw_init, double* final_theta_uw_out,
+                     int prev_in_rf_init, int* final_in_rf_out) {
     long long total_steps = (long long)((t_end - t0) / h);
     if (total_steps <= 0) return;
     long long save_interval = total_steps / return_steps;
@@ -222,7 +223,7 @@ void run_integration(double* y_init, const double* field_params,
     double circumference = 2.0 * M_PI * R0;
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
-    bool   prev_in_rf = false;
+    bool   prev_in_rf = (prev_in_rf_init != 0);
     double p_tang_ref  = 0.0;
     bool   have_ref    = false;
 
@@ -314,6 +315,7 @@ void run_integration(double* y_init, const double* field_params,
     }
     poincare_count[0] = p_saved;
     if (final_theta_uw_out) *final_theta_uw_out = prev_theta_uw;
+    if (final_in_rf_out)    *final_in_rf_out    = prev_in_rf ? 1 : 0;
 }
 
 } // extern "C"

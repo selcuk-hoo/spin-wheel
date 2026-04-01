@@ -114,6 +114,7 @@ def main():
     all_hist, all_poin, all_poin_t = [], [], []
     y_cur = list(y0)
     theta_uw = 0.0
+    in_rf    = 0
 
     if _tqdm_ok:
         import sys
@@ -126,9 +127,9 @@ def main():
     for i in chunk_iter:
         t_s = t0 + i * t_chunk
         t_e = t_s + t_chunk
-        hist_c, poin_c, poin_t_c, theta_uw, final_state = integrate_particle(
+        hist_c, poin_c, poin_t_c, theta_uw, final_state, in_rf = integrate_particle(
             y_cur, t_s, t_e, h, fields=alanlar,
-            return_steps=return_per_chunk, prev_theta_uw=theta_uw
+            return_steps=return_per_chunk, prev_theta_uw=theta_uw, prev_in_rf=in_rf
         )
         all_hist.append(hist_c)
         if poin_c.shape[0] > 0:

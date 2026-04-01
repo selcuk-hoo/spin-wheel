@@ -29,6 +29,8 @@ _lib.run_integration.argtypes = [
     ctypes.POINTER(ctypes.c_int),    # poincare_count
     ctypes.c_double,                 # prev_theta_uw_init
     ctypes.POINTER(ctypes.c_double), # final_theta_uw_out
+    ctypes.c_int,                    # prev_in_rf_init
+    ctypes.POINTER(ctypes.c_int),    # final_in_rf_out
 ]
 _lib.run_integration.restype = None
 
@@ -101,7 +103,7 @@ def convert_global_to_local_matrix(history_global_np, R0, initial_z):
     
     return history_local
 
-def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, prev_theta_uw=0.0):
+def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, prev_theta_uw=0.0, prev_in_rf=0):
     if fields is None: fields = FieldParams()
     R0 = fields.R0
     
@@ -130,7 +132,8 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, p
     poincare_t_c = (ctypes.c_double * max_poincare)()
     
     final_theta_uw_c = (ctypes.c_double * 1)(0.0)
-    _lib.run_integration(y0_arr, field_arr, t0, t_end, h, 9, return_steps, history_c, max_poincare, poincare_c, poincare_t_c, poincare_count, ctypes.c_double(prev_theta_uw), final_theta_uw_c)
+    final_in_rf_c    = (ctypes.c_int * 1)(0)
+    _lib.run_integration(y0_arr, field_arr, t0, t_end, h, 9, return_steps, history_c, max_poincare, poincare_c, poincare_t_c, poincare_count, ctypes.c_double(prev_theta_uw), final_theta_uw_c, ctypes.c_int(prev_in_rf), final_in_rf_c)
 
     history_np = np.ctypeslib.as_array(history_c).reshape((return_steps, 9))
     num_p = poincare_count[0]
@@ -165,4 +168,4 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, p
         -fg[6]*sin_t + fg[7]*cos_t,                           # s_tang
     ])
 
-    return hist_local, poin_local, poincare_t_np, final_theta_uw, final_local_arr
+    return hist_local, poin_local, poincare_t_np, final_theta_uw, final_local_arr, int(final_in_rf_c[0])
