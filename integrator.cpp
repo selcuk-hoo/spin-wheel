@@ -196,7 +196,8 @@ void run_integration(double* y_init, const double* field_params,
                      double t0, double t_end, double h, int dim,
                      int return_steps, double* history_out,
                      int max_poincare, double* poincare_out,
-                     double* poincare_t, int* poincare_count) {
+                     double* poincare_t, int* poincare_count,
+                     double prev_theta_uw_init, double* final_theta_uw_out) {
     long long total_steps = (long long)((t_end - t0) / h);
     if (total_steps <= 0) return;
     long long save_interval = total_steps / return_steps;
@@ -233,7 +234,7 @@ void run_integration(double* y_init, const double* field_params,
     }
 
     double t           = t0;
-    double prev_theta_uw = 0.0;
+    double prev_theta_uw = prev_theta_uw_init;
     int    save_idx    = 0;
     int    p_saved     = 0;
 
@@ -312,6 +313,7 @@ void run_integration(double* y_init, const double* field_params,
         }
     }
     poincare_count[0] = p_saved;
+    if (final_theta_uw_out) *final_theta_uw_out = prev_theta_uw;
 }
 
 } // extern "C"
