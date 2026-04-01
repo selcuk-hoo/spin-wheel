@@ -146,7 +146,23 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000, p
     final_theta_uw = float(final_theta_uw_c[0])
 
     # Extract actual final global state (y0_arr was modified in-place by C++)
-    final_global = np.array(list(y0_arr))
-    final_local_arr = convert_global_to_local_matrix(final_global.reshape(1, 9), R0, z)[0]
+    # convert_global_to_local_matrix can't compute correct z_long for a single
+    # point (np.unwrap does nothing). Use final_theta_uw directly instead.
+    fg = list(y0_arr)
+    X_g, Y_g, Z_g = fg[0], fg[1], fg[2]
+    R_g   = np.sqrt(X_g**2 + Y_g**2)
+    th    = np.arctan2(Y_g, X_g)
+    cos_t = np.cos(th); sin_t = np.sin(th)
+    final_local_arr = np.array([
+        R_g - R0,                                              # x_rad
+        Z_g,                                                   # y_vert
+        final_theta_uw * R0,                                   # z_long (unwrapped)
+        fg[3]*cos_t + fg[4]*sin_t,                            # p_rad
+        fg[5],                                                 # p_vert
+        -fg[3]*sin_t + fg[4]*cos_t,                           # p_tang
+        fg[6]*cos_t + fg[7]*sin_t,                            # s_rad
+        fg[8],                                                 # s_vert
+        -fg[6]*sin_t + fg[7]*cos_t,                           # s_tang
+    ])
 
     return hist_local, poin_local, poincare_t_np, final_theta_uw, final_local_arr
