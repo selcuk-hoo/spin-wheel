@@ -196,9 +196,7 @@ void run_integration(double* y_init, const double* field_params,
                      double t0, double t_end, double h, int dim,
                      int return_steps, double* history_out,
                      int max_poincare, double* poincare_out,
-                     double* poincare_t, int* poincare_count,
-                     double prev_theta_uw_init, double* final_theta_uw_out,
-                     int prev_in_rf_init, int* final_in_rf_out) {
+                     double* poincare_t, int* poincare_count) {
     long long total_steps = (long long)((t_end - t0) / h);
     if (total_steps <= 0) return;
     long long save_interval = total_steps / return_steps;
@@ -223,7 +221,7 @@ void run_integration(double* y_init, const double* field_params,
     double circumference = 2.0 * M_PI * R0;
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
-    bool   prev_in_rf = (prev_in_rf_init != 0);
+    bool   prev_in_rf = false;
     double p_tang_ref  = 0.0;
     bool   have_ref    = false;
 
@@ -234,12 +232,21 @@ void run_integration(double* y_init, const double* field_params,
             rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
     }
 
-    double t           = t0;
-    double prev_theta_uw = prev_theta_uw_init;
-    int    save_idx    = 0;
-    int    p_saved     = 0;
+    double t             = t0;
+    double prev_theta_uw = 0.0;
+    int    save_idx      = 0;
+    int    p_saved       = 0;
+    long long print_interval = total_steps / 10;  // her %10'da bir
+    if (print_interval == 0) print_interval = 1;
 
     for (long long step = 0; step < total_steps; ++step) {
+        if (step % print_interval == 0) {
+            int pct = (int)(step * 100 / total_steps);
+            double t_ms = t * 1000.0;
+            std::printf("  t = %.4f ms  |  %%%d\n", t_ms, pct);
+            std::fflush(stdout);
+        }
+
         double old_X = y_init[0], old_Y = y_init[1];
         double old_theta = std::atan2(old_Y, old_X);
         if (old_theta < 0) old_theta += 2.0 * M_PI;
@@ -314,8 +321,8 @@ void run_integration(double* y_init, const double* field_params,
         }
     }
     poincare_count[0] = p_saved;
-    if (final_theta_uw_out) *final_theta_uw_out = prev_theta_uw;
-    if (final_in_rf_out)    *final_in_rf_out    = prev_in_rf ? 1 : 0;
+    std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);
+    std::fflush(stdout);
 }
 
 } // extern "C"
