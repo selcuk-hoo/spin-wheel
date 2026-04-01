@@ -228,8 +228,8 @@ void run_integration(double* y_init, const double* field_params,
 
     std::ofstream rf_out;
     if (rf_on) {
-        rf_out.open("rf.txt", std::ios::out | std::ios::trunc);
-        if (rf_out.is_open())
+        rf_out.open("rf.txt", std::ios::app);
+        if (rf_out.is_open() && rf_out.tellp() == 0)
             rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
     }
 

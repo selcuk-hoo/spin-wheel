@@ -14,7 +14,7 @@ def load_parameters(param_file="params.json"):
 def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     config = load_parameters("params.json")
-    if float(config.get("rfSwitch", 0)) == 0 and os.path.isfile("rf.txt"):
+    if os.path.isfile("rf.txt"):
         os.remove("rf.txt")
     
     M2 = 0.938272046 
