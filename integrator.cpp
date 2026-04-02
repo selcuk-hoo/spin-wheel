@@ -305,7 +305,9 @@ void run_integration(double* y_init, const double* field_params,
         // --- Poincaré kesiti ---
         double p_rel = prev_theta_uw - target_angle;
         double c_rel = cur_theta_uw  - target_angle;
-        if (std::floor(c_rel/(2.0*M_PI)) != std::floor(p_rel/(2.0*M_PI)) && p_saved < max_poincare) {
+        // En az yarım tur geçmeden Poincaré tetiklemez (saat yönü başlangıç false-trigger önlemi)
+        if (std::abs(cur_theta_uw) >= M_PI &&
+            std::floor(c_rel/(2.0*M_PI)) != std::floor(p_rel/(2.0*M_PI)) && p_saved < max_poincare) {
             poincare_t[p_saved] = t;
             for (int i = 0; i < dim; ++i)
                 poincare_out[p_saved*dim + i] = y_init[i];
