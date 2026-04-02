@@ -138,13 +138,21 @@ def main():
         print(f"-> Geometrik Emitans (y)     : {eps_y:.1e} pi*mm*mrad")
 
         if poin_local.shape[0] > 3:
-            def _tune(u, up):
+            def _tune_frac(u, up):
                 uc = u - u.mean(); upc = up - up.mean()
-                return abs(np.mean(np.diff(np.unwrap(np.arctan2(upc, uc))))) / (2 * np.pi)
-            Qx = _tune(x_pc, xp_pc)
-            Qy = _tune(y_pc, yp_pc)
-            print(f"-> Betatron Tune Qx          : N + {Qx:.4f}")
-            print(f"-> Betatron Tune Qy          : N + {Qy:.4f}")
+                dphi = np.diff(np.unwrap(np.arctan2(upc, uc)))
+                return abs(np.sum(dphi)) / (2 * np.pi * (len(u) - 1))
+            Qx_frac = _tune_frac(x_pc, xp_pc)
+            Qy_frac = _tune_frac(y_pc, yp_pc)
+            # Tamsayı kısmı: ince mercek FODO formülünden tahmin
+            L_half = np.pi * R0 / alanlar.nFODO
+            f_focal = 1.0 / max(alanlar.quadK1 * alanlar.quadLen, 1e-9)
+            arg = np.clip(1.0 - L_half**2 / (2 * f_focal**2), -1.0, 1.0)
+            Q_thin = (alanlar.nFODO / np.pi) * np.arccos(arg)
+            Qx = Qx_frac + round(Q_thin - Qx_frac)
+            Qy = Qy_frac + round(Q_thin - Qy_frac)
+            print(f"-> Betatron Tune Qx          : {Qx:.4f}")
+            print(f"-> Betatron Tune Qy          : {Qy:.4f}")
         
     sx_arr = sonuclar_local[:, 6]
     slope_sx, _ = np.polyfit(t_array, sx_arr, 1)
