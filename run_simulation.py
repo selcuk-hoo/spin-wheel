@@ -136,6 +136,15 @@ def main():
         
         print(f"-> Geometrik Emitans (x)     : {eps_x:.1e} pi*mm*mrad")
         print(f"-> Geometrik Emitans (y)     : {eps_y:.1e} pi*mm*mrad")
+
+        if poin_local.shape[0] > 3:
+            def _tune(u, up):
+                uc = u - u.mean(); upc = up - up.mean()
+                return abs(np.mean(np.diff(np.unwrap(np.arctan2(upc, uc))))) / (2 * np.pi)
+            Qx = _tune(x_pc, xp_pc)
+            Qy = _tune(y_pc, yp_pc)
+            print(f"-> Betatron Tune Qx          : N + {Qx:.4f}")
+            print(f"-> Betatron Tune Qy          : N + {Qy:.4f}")
         
     sx_arr = sonuclar_local[:, 6]
     slope_sx, _ = np.polyfit(t_array, sx_arr, 1)
