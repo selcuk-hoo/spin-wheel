@@ -34,6 +34,7 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double sextSwitch = field_params[9];
     int    nFODO    = (int)(field_params[12] + 0.5);
     double quadLen  = field_params[13];
+    double driftLen = field_params[18];
 
     double X_g = r[0], Y_g = r[1], Z_g = r[2];
     double R   = std::sqrt(X_g*X_g + Y_g*Y_g);
@@ -42,6 +43,36 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     // cos/sin doğrudan X/R, Y/R — atan2+cos/sin çağrısından kaçınılır
     double cos_th = X_g / R;
     double sin_th = Y_g / R;
+
+    // Quad/drift bölgesi tespiti (hem drift hem quad/sext için ortak)
+    bool in_drift = false;
+    bool in_quad  = false;
+    int  quad_index = 0;
+
+    if (nFODO > 0 && quadLen > 0.0) {
+        double theta_pos = std::atan2(Y_g, X_g);
+        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
+
+        double sector_angle = M_PI / nFODO;
+        quad_index = (int)(theta_pos / sector_angle + 0.5);
+        if (quad_index >= 2 * nFODO) quad_index = 0;
+
+        double quad_center_theta = quad_index * sector_angle;
+        double diff_theta = theta_pos - quad_center_theta;
+        while (diff_theta >  M_PI) diff_theta -= 2.0 * M_PI;
+        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
+
+        double dist = R0 * std::abs(diff_theta);
+        in_quad  = (dist <= quadLen / 2.0);
+        in_drift = (driftLen > 0.0) && (!in_quad) && (dist <= quadLen / 2.0 + driftLen);
+    }
+
+    // Drift bölgesinde tüm alanlar sıfır
+    if (in_drift) {
+        E[0] = E[1] = E[2] = 0.0;
+        B[0] = B[1] = B[2] = 0.0;
+        return;
+    }
 
     double E_r = 0.0, E_z = 0.0;
     if (R > 1e-6) {
@@ -65,39 +96,22 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     B[1] = -B0rad * sin_th - B0long * cos_th;
     B[2] = B0ver;
 
-    if ((quadSwitch > 0.0 || sextSwitch > 0.0) && nFODO > 0 && quadLen > 0.0) {
-        // Quad sektörü tespiti için atan2 sadece burada hesaplanır
-        double theta_pos = std::atan2(Y_g, X_g);
-        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
-
-        double sector_angle = M_PI / nFODO;
-        int quad_index = (int)(theta_pos / sector_angle + 0.5);
-        if (quad_index >= 2 * nFODO) quad_index = 0;
-
-        double quad_center_theta = quad_index * sector_angle;
-        double diff_theta = theta_pos - quad_center_theta;
-        while (diff_theta >  M_PI) diff_theta -= 2.0 * M_PI;
-        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
-
-        double dist_from_center = R0 * std::abs(diff_theta);
-
-        if (dist_from_center <= quadLen / 2.0) {
-            if (quadSwitch > 0.0) {
-                double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
-                double B_quad_r   = current_K1 * Z_g;
-                double B_quad_z   = current_K1 * dev;
-                B[0] += B_quad_r * cos_th;
-                B[1] += B_quad_r * sin_th;
-                B[2] += B_quad_z;
-            }
-            if (sextSwitch > 0.0) {
-                double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
-                double B_sext_r    = current_sK1 * dev * Z_g;
-                double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
-                B[0] += B_sext_r * cos_th;
-                B[1] += B_sext_r * sin_th;
-                B[2] += B_sext_z;
-            }
+    if (in_quad) {
+        if (quadSwitch > 0.0) {
+            double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
+            double B_quad_r   = current_K1 * Z_g;
+            double B_quad_z   = current_K1 * dev;
+            B[0] += B_quad_r * cos_th;
+            B[1] += B_quad_r * sin_th;
+            B[2] += B_quad_z;
+        }
+        if (sextSwitch > 0.0) {
+            double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
+            double B_sext_r    = current_sK1 * dev * Z_g;
+            double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
+            B[0] += B_sext_r * cos_th;
+            B[1] += B_sext_r * sin_th;
+            B[2] += B_sext_z;
         }
     }
 }
@@ -218,7 +232,9 @@ void run_integration(double* y_init, const double* field_params,
     double p_magic = M_GeV / std::sqrt(G_P);               // GeV/c
     double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV); // GeV
     double beta_magic = p_magic / E_magic;
-    double circumference = 2.0 * M_PI * R0;
+    double driftLen_rf   = field_params[18];
+    // Toplam çevre: yay + her quad'ın önündeki ve arkasındaki drift (48 quad × 2 × driftLen)
+    double circumference = 2.0 * M_PI * R0 + 2.0 * nFODO * 2.0 * driftLen_rf;
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
     bool   prev_in_rf = false;
