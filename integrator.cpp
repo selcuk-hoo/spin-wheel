@@ -34,7 +34,6 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double sextSwitch = field_params[9];
     int    nFODO    = (int)(field_params[12] + 0.5);
     double quadLen  = field_params[13];
-    double driftLen = field_params[18];
 
     double X_g = r[0], Y_g = r[1], Z_g = r[2];
     double R   = std::sqrt(X_g*X_g + Y_g*Y_g);
@@ -43,36 +42,6 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     // cos/sin doğrudan X/R, Y/R — atan2+cos/sin çağrısından kaçınılır
     double cos_th = X_g / R;
     double sin_th = Y_g / R;
-
-    // Quad/drift bölgesi tespiti (hem drift hem quad/sext için ortak)
-    bool in_drift = false;
-    bool in_quad  = false;
-    int  quad_index = 0;
-
-    if (nFODO > 0 && quadLen > 0.0) {
-        double theta_pos = std::atan2(Y_g, X_g);
-        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
-
-        double sector_angle = M_PI / nFODO;
-        quad_index = (int)(theta_pos / sector_angle + 0.5);
-        if (quad_index >= 2 * nFODO) quad_index = 0;
-
-        double quad_center_theta = quad_index * sector_angle;
-        double diff_theta = theta_pos - quad_center_theta;
-        while (diff_theta >  M_PI) diff_theta -= 2.0 * M_PI;
-        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
-
-        double dist = R0 * std::abs(diff_theta);
-        in_quad  = (dist <= quadLen / 2.0);
-        in_drift = (driftLen > 0.0) && (!in_quad) && (dist <= quadLen / 2.0 + driftLen);
-    }
-
-    // Drift bölgesinde tüm alanlar sıfır
-    if (in_drift) {
-        E[0] = E[1] = E[2] = 0.0;
-        B[0] = B[1] = B[2] = 0.0;
-        return;
-    }
 
     double E_r = 0.0, E_z = 0.0;
     if (R > 1e-6) {
@@ -96,22 +65,39 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     B[1] = -B0rad * sin_th - B0long * cos_th;
     B[2] = B0ver;
 
-    if (in_quad) {
-        if (quadSwitch > 0.0) {
-            double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
-            double B_quad_r   = current_K1 * Z_g;
-            double B_quad_z   = current_K1 * dev;
-            B[0] += B_quad_r * cos_th;
-            B[1] += B_quad_r * sin_th;
-            B[2] += B_quad_z;
-        }
-        if (sextSwitch > 0.0) {
-            double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
-            double B_sext_r    = current_sK1 * dev * Z_g;
-            double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
-            B[0] += B_sext_r * cos_th;
-            B[1] += B_sext_r * sin_th;
-            B[2] += B_sext_z;
+    if ((quadSwitch > 0.0 || sextSwitch > 0.0) && nFODO > 0 && quadLen > 0.0) {
+        // Quad sektörü tespiti için atan2 sadece burada hesaplanır
+        double theta_pos = std::atan2(Y_g, X_g);
+        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
+
+        double sector_angle = M_PI / nFODO;
+        int quad_index = (int)(theta_pos / sector_angle + 0.5);
+        if (quad_index >= 2 * nFODO) quad_index = 0;
+
+        double quad_center_theta = quad_index * sector_angle;
+        double diff_theta = theta_pos - quad_center_theta;
+        while (diff_theta >  M_PI) diff_theta -= 2.0 * M_PI;
+        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
+
+        double dist_from_center = R0 * std::abs(diff_theta);
+
+        if (dist_from_center <= quadLen / 2.0) {
+            if (quadSwitch > 0.0) {
+                double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
+                double B_quad_r   = current_K1 * Z_g;
+                double B_quad_z   = current_K1 * dev;
+                B[0] += B_quad_r * cos_th;
+                B[1] += B_quad_r * sin_th;
+                B[2] += B_quad_z;
+            }
+            if (sextSwitch > 0.0) {
+                double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
+                double B_sext_r    = current_sK1 * dev * Z_g;
+                double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
+                B[0] += B_sext_r * cos_th;
+                B[1] += B_sext_r * sin_th;
+                B[2] += B_sext_z;
+            }
         }
     }
 }
@@ -216,10 +202,11 @@ void run_integration(double* y_init, const double* field_params,
     long long save_interval = total_steps / return_steps;
     if (save_interval == 0) save_interval = 1;
 
-    double R0      = field_params[0];
-    int    nFODO   = (int)(field_params[12] + 0.5);
-    double quadLen = field_params[13];
-    double dir     = field_params[11];
+    double R0       = field_params[0];
+    int    nFODO    = (int)(field_params[12] + 0.5);
+    double quadLen  = field_params[13];
+    double dir      = field_params[11];
+    double driftLen = field_params[18];
 
     int    target_quad  = (int)(field_params[14] + 0.5);
     double target_angle = target_quad * (M_PI / nFODO);
@@ -232,9 +219,8 @@ void run_integration(double* y_init, const double* field_params,
     double p_magic = M_GeV / std::sqrt(G_P);               // GeV/c
     double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV); // GeV
     double beta_magic = p_magic / E_magic;
-    double driftLen_rf   = field_params[18];
-    // Toplam çevre: yay + her quad'ın önündeki ve arkasındaki drift (48 quad × 2 × driftLen)
-    double circumference = 2.0 * M_PI * R0 + 2.0 * nFODO * 2.0 * driftLen_rf;
+    // Toplam çevre: yay + her quad'ın her iki yanındaki drift (2*nFODO quad × 2 × driftLen)
+    double circumference = 2.0 * M_PI * R0 + 4.0 * nFODO * driftLen;
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
     bool   prev_in_rf = false;
@@ -248,6 +234,19 @@ void run_integration(double* y_init, const double* field_params,
             rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
     }
 
+    // Drift bölgesi tespiti (açısal konum bazlı)
+    auto in_drift_zone = [&](double theta_pos) -> bool {
+        if (driftLen <= 0.0 || nFODO <= 0) return false;
+        double sector = M_PI / nFODO;
+        int qi = (int)(theta_pos / sector + 0.5);
+        if (qi >= 2 * nFODO) qi = 0;
+        double diff = theta_pos - qi * sector;
+        while (diff >  M_PI) diff -= 2.0 * M_PI;
+        while (diff < -M_PI) diff += 2.0 * M_PI;
+        double dist = R0 * std::abs(diff);
+        return (dist > quadLen / 2.0 && dist <= quadLen / 2.0 + driftLen);
+    };
+
     double t             = t0;
     double prev_theta_uw = 0.0;
     int    save_idx      = 0;
@@ -255,11 +254,13 @@ void run_integration(double* y_init, const double* field_params,
     long long print_interval = total_steps / 10;  // her %10'da bir
     if (print_interval == 0) print_interval = 1;
 
-    for (long long step = 0; step < total_steps; ++step) {
+    bool prev_in_drift = false;
+    long long step = 0;
+
+    while (step < total_steps) {
         if (step % print_interval == 0) {
             int pct = (int)(step * 100 / total_steps);
-            double t_ms = t * 1000.0;
-            std::printf("  t = %.4f ms  |  %%%d\n", t_ms, pct);
+            std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
             std::fflush(stdout);
         }
 
@@ -267,8 +268,40 @@ void run_integration(double* y_init, const double* field_params,
         double old_theta = std::atan2(old_Y, old_X);
         if (old_theta < 0) old_theta += 2.0 * M_PI;
 
-        gl4_step(t, y_init, field_params, h, dim);
-        t += h;
+        bool cur_in_drift = in_drift_zone(old_theta);
+        long long step_advance = 1;
+
+        if (cur_in_drift && !prev_in_drift) {
+            // Drift bölgesine ilk kez girildi: teleportasyon
+            // r += v * dt_tele  |  p ve s sabit
+            double px = y_init[3], py = y_init[4], pz = y_init[5];
+            double p_sq = px*px + py*py + pz*pz;
+            double mc   = M_P * C_LIGHT;
+            double gam  = std::sqrt(1.0 + p_sq / (mc * mc));
+            double vx = px / (gam * M_P);
+            double vy = py / (gam * M_P);
+            double vz = pz / (gam * M_P);
+            double v_mag = std::sqrt(vx*vx + vy*vy + vz*vz);
+            double dt_tele = driftLen / v_mag;
+
+            y_init[0] += vx * dt_tele;
+            y_init[1] += vy * dt_tele;
+            y_init[2] += vz * dt_tele;
+            // y_init[3..5] (p) ve y_init[6..8] (s) değişmez
+            t += dt_tele;
+            step_advance = std::max(1LL, (long long)(dt_tele / h));
+        } else if (!cur_in_drift) {
+            // Yay veya quad bölgesi: normal GL4 adımı
+            gl4_step(t, y_init, field_params, h, dim);
+            t += h;
+        } else {
+            // Zaten drift içindeydik (teleport sonrası yüzer nokta sınırı):
+            // tek GL4 adımı ilerle
+            gl4_step(t, y_init, field_params, h, dim);
+            t += h;
+        }
+
+        prev_in_drift = cur_in_drift;
 
         double cur_X = y_init[0], cur_Y = y_init[1];
         double cur_theta = std::atan2(cur_Y, cur_X);
@@ -337,6 +370,8 @@ void run_integration(double* y_init, const double* field_params,
                 history_out[save_idx*dim + i] = y_init[i];
             save_idx++;
         }
+
+        step += step_advance;
     }
     poincare_count[0] = p_saved;
     std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);
