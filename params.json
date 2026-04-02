@@ -1,5 +1,5 @@
 {
-    "R0": 95.49,
+    "R0": 127.324,
     "direction": -1,
     "spinHorRotation": 0.0,
     "momError": 0.0,
@@ -14,7 +14,7 @@
     "return_steps": 10000,
     "poincare_quad_index": 0,
     "quadLen": 0.4,
-    "driftLen": 2.0,
+    "driftLen": 16.267,
     "k1": 0.21,
     "sextK1": -0.015,
     "quadSwitch": 1,
