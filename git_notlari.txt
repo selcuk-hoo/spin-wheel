@@ -1,0 +1,51 @@
+========================================================================
+                                            GIT KOMUTLARI
+========================================================================
+
+1. GÜNLÜK ÇALIŞMA (TAG OLMADAN YÜKLEME)
+---------------------------------------
+Sadece yaptığın değişiklikleri GitHub'a yedeklemek için:
+
+git add .
+git commit -m "Yapılan değişikliklerin kısa özeti"
+git push origin main
+
+2. GÜNCELLEMELERİ ALMA (SAFE PULL)
+----------------------------------
+Yereldeki işlerini bozmadan GitHub'daki güncel kodu çekmek için:
+
+git stash               # Henüz commit edilmemiş işleri kenara al
+git pull origin main    # GitHub'daki güncel kodu çek
+git stash pop           # Kendi işlerini geri getir ve birleştir
+
+3. ÖNEMLİ MİLATLAR (COMMIT & TAG)
+---------------------------------
+Kodun belirli bir aşamasını (örn. makale verisi üretilen an) mühürlemek için:
+
+git add .
+git commit -m "Demet ve spin dinamigi tamam"
+git tag -a v2.0 -m "v2.0: Kararlı sürüm açıklaması"
+git push origin v2.0    # Etiketi gönderir
+git push origin main    # Kodu gönderir
+
+4. RELEASE (YAYIN) OLUŞTURMA
+----------------------------
+GitHub CLI kullanarak etiketi resmi bir sürüm sayfasına dönüştürmek için:
+
+gh release create v2.0 --title "Sürüm Başlığı" --notes "Notlar..."
+
+5. ACİL DURUM (FORCE PUSH)
+--------------------------
+Git yüklemeyi reddediyorsa ve yereldeki kodun doğruluğundan eminsen:
+
+git push origin main --force
+
+6. C++ INTEGRATOR DERLEME (SHARED LIBRARY)
+------------------------------------------
+# Linux (.so):
+g++ -O3 -ffast-math -shared -fPIC -o lib_integrator.so integrator.cpp
+
+# macOS (.dylib):
+g++ -O3 -ffast-math -dynamiclib -o integrator.dylib integrator.cpp
+
+========================================================================
