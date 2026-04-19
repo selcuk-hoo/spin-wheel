@@ -114,9 +114,8 @@ def main():
     tur_sayisi = r_son[2] / (2.0 * np.pi * R0)
     print(f"-> Toplam Atılan Tur Sayısı  : {tur_sayisi:.3f} tur")
     
-    save_interval = max(1, int(adim_sayisi / return_steps))
-    t_array = t0 + np.arange(sonuclar_local.shape[0]) * (save_interval * h)
-    
+    t_array = np.linspace(t0, t_end, return_steps)
+
     if poin_local.shape[0] > 1:
         x_pc = poin_local[:, 0] * 1000
         y_pc = poin_local[:, 1] * 1000
@@ -160,8 +159,6 @@ def main():
     print("--------------------------------------------------")
     
     print("Sürekli (Continuous) veriler yazılıyor (simulation_data.txt)...")
-    save_interval = max(1, int(adim_sayisi / return_steps))
-    t_array = t0 + np.arange(sonuclar_local.shape[0]) * (save_interval * h)
     
     with open("simulation_data.txt", "w") as f:
         f.write("Time(s)\tDev_X_m\tY_vert_m\tZ_long_m\tPx\tPy\tPz\tS_Rady\tS_Dikey\tS_Long\n")

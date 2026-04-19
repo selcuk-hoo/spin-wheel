@@ -219,8 +219,9 @@ void run_integration(double* y_init, const double* field_params,
     double p_magic = M_GeV / std::sqrt(G_P);               // GeV/c
     double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV); // GeV
     double beta_magic = p_magic / E_magic;
-    // Toplam çevre: yay + her quad'ın her iki yanındaki drift (2*nFODO quad × 2 × driftLen)
-    double circumference = 2.0 * M_PI * R0 + 4.0 * nFODO * driftLen;
+    // Drift bölgeleri açısal konuma göre çember üzerinde tanımlı; tur başına gerçek yol ≈ 2πR0.
+    // (yay + quad + 96 drift teleportasyonu ≈ 600 m = 2πR0; 4*nFODO*driftLen eklemek iki kez saymaktır)
+    double circumference = 2.0 * M_PI * R0;
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
     bool   prev_in_rf = false;
@@ -251,17 +252,22 @@ void run_integration(double* y_init, const double* field_params,
     double prev_theta_uw = 0.0;
     int    save_idx      = 0;
     int    p_saved       = 0;
-    long long print_interval = total_steps / 10;  // her %10'da bir
-    if (print_interval == 0) print_interval = 1;
+
+    // Zaman bazlı kayıt: step_advance sebebiyle atlanan noktaların önüne geçer
+    double t_save_interval = (t_end > t0) ? (t_end - t0) / return_steps : 1.0;
+    double t_save_next     = t0 + t_save_interval;
+    double t_print_next    = t0;
+    double t_print_interval = (t_end - t0) / 10.0;
 
     bool prev_in_drift = false;
-    long long step = 0;
 
-    while (step < total_steps) {
-        if (step % print_interval == 0) {
-            int pct = (int)(step * 100 / total_steps);
+    while (t < t_end) {
+        // İlerleme çıktısı (zaman bazlı)
+        if (t >= t_print_next) {
+            int pct = (int)((t - t0) * 100.0 / (t_end - t0));
             std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
             std::fflush(stdout);
+            t_print_next += t_print_interval;
         }
 
         double old_X = y_init[0], old_Y = y_init[1];
@@ -269,34 +275,46 @@ void run_integration(double* y_init, const double* field_params,
         if (old_theta < 0) old_theta += 2.0 * M_PI;
 
         bool cur_in_drift = in_drift_zone(old_theta);
-        long long step_advance = 1;
 
         if (cur_in_drift && !prev_in_drift) {
-            // Drift bölgesine ilk kez girildi: teleportasyon
-            // r += v * dt_tele  |  p ve s sabit
-            double px = y_init[3], py = y_init[4], pz = y_init[5];
-            double p_sq = px*px + py*py + pz*pz;
-            double mc   = M_P * C_LIGHT;
-            double gam  = std::sqrt(1.0 + p_sq / (mc * mc));
-            double vx = px / (gam * M_P);
-            double vy = py / (gam * M_P);
-            double vz = pz / (gam * M_P);
-            double v_mag = std::sqrt(vx*vx + vy*vy + vz*vz);
-            double dt_tele = driftLen / v_mag;
+            // Drift bölgesine ilk kez girildi: YAY BOYUNCA teleportasyon.
+            // Parçacığı driftLen yay kadar halka merkezi etrafında döndür.
+            // Bu, R'yi R0'da tutar ve driftLen²/(2R0) ≈ 22.7 mm radyal sapmayı önler.
+            // Alan-serbest bölgede Thomas-BMT: E=B=0 → Ω=0 → dS/dt=0 → S küresel çerçevede sabit.
+            double dth = driftLen / R0;
 
-            y_init[0] += vx * dt_tele;
-            y_init[1] += vy * dt_tele;
-            y_init[2] += vz * dt_tele;
-            // y_init[3..5] (p) ve y_init[6..8] (s) değişmez
+            // Dolaşım yönünü belirle: p'nin saat-yönü-tersi teğetsel bileşeninin işareti
+            double X = y_init[0], Y = y_init[1];
+            double R_cur = std::sqrt(X*X + Y*Y);
+            double Px = y_init[3], Py = y_init[4];
+            double tang = (-Y * Px + X * Py) / R_cur;
+            double angle = (tang >= 0.0) ? dth : -dth;
+            double ca = std::cos(angle), sa = std::sin(angle);
+
+            // Konumu döndür (R korunur)
+            y_init[0] = X*ca - Y*sa;
+            y_init[1] = X*sa + Y*ca;
+
+            // Momentumu döndür (teğetsel yön ve |p| korunur)
+            y_init[3] = Px*ca - Py*sa;
+            y_init[4] = Px*sa + Py*ca;
+
+            // Spin: küresel Kartezyen'de değişmez
+            // y_init[6..8] sabit
+
+            // Zaman ilerlemesi
+            double p_sq = Px*Px + Py*Py + y_init[5]*y_init[5];
+            double gam  = std::sqrt(1.0 + p_sq / (M_P * C_LIGHT * M_P * C_LIGHT));
+            double v_mag = std::sqrt(p_sq) / (gam * M_P);
+            double dt_tele = driftLen / v_mag;
             t += dt_tele;
-            step_advance = std::max(1LL, (long long)(dt_tele / h));
+            if (t > t_end) t = t_end;
         } else if (!cur_in_drift) {
             // Yay veya quad bölgesi: normal GL4 adımı
             gl4_step(t, y_init, field_params, h, dim);
             t += h;
         } else {
-            // Zaten drift içindeydik (teleport sonrası yüzer nokta sınırı):
-            // tek GL4 adımı ilerle
+            // Zaten drift içindeydik (teleport sonrası yüzer nokta sınırı): tek GL4 adımı
             gl4_step(t, y_init, field_params, h, dim);
             t += h;
         }
@@ -364,15 +382,26 @@ void run_integration(double* y_init, const double* field_params,
         }
         prev_theta_uw = cur_theta_uw;
 
-        // --- Geçmiş kaydı ---
-        if (step % save_interval == 0 && save_idx < return_steps) {
+        // --- Geçmiş kaydı (zaman bazlı: step atlama sorununu giderir) ---
+        while (t >= t_save_next && save_idx < return_steps) {
             for (int i = 0; i < dim; ++i)
                 history_out[save_idx*dim + i] = y_init[i];
             save_idx++;
+            t_save_next += t_save_interval;
         }
-
-        step += step_advance;
     }
+
+    // Son durumu son slota kaydet (son kayıt noktasının eksik kalmaması için)
+    if (save_idx < return_steps) {
+        for (int i = 0; i < dim; ++i)
+            history_out[save_idx*dim + i] = y_init[i];
+        save_idx++;
+    }
+    // Kalan slotları son geçerli değerle doldur
+    for (int fill = save_idx; fill < return_steps; fill++)
+        for (int i = 0; i < dim; ++i)
+            history_out[fill*dim + i] = history_out[(save_idx-1)*dim + i];
+
     poincare_count[0] = p_saved;
     std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);
     std::fflush(stdout);
