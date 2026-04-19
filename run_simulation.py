@@ -114,8 +114,9 @@ def main():
     tur_sayisi = r_son[2] / (2.0 * np.pi * R0)
     print(f"-> Toplam Atılan Tur Sayısı  : {tur_sayisi:.3f} tur")
     
-    t_array = np.linspace(t0, t_end, return_steps)
-
+    save_interval = max(1, int(adim_sayisi / return_steps))
+    t_array = t0 + np.arange(sonuclar_local.shape[0]) * (save_interval * h)
+    
     if poin_local.shape[0] > 1:
         x_pc = poin_local[:, 0] * 1000
         y_pc = poin_local[:, 1] * 1000
@@ -137,28 +138,47 @@ def main():
         print(f"-> Geometrik Emitans (y)     : {eps_y:.1e} pi*mm*mrad")
 
         if poin_local.shape[0] > 3:
-            def _tune_frac(u, up):
+            def _tune_full(u, up):
                 uc = u - u.mean(); upc = up - up.mean()
                 dphi = np.diff(np.unwrap(np.arctan2(upc, uc)))
-                return abs(np.sum(dphi)) / (2 * np.pi * (len(u) - 1))
-            Qx_frac = _tune_frac(x_pc, xp_pc)
-            Qy_frac = _tune_frac(y_pc, yp_pc)
-            # Tamsayı kısmı: ince mercek FODO formülünden tahmin
-            L_half = np.pi * R0 / alanlar.nFODO
-            f_focal = 1.0 / max(alanlar.quadK1 * alanlar.quadLen, 1e-9)
-            arg = np.clip(1.0 - L_half**2 / (2 * f_focal**2), -1.0, 1.0)
-            Q_thin = (alanlar.nFODO / np.pi) * np.arccos(arg)
-            Qx = Qx_frac + round(Q_thin - Qx_frac)
-            Qy = Qy_frac + round(Q_thin - Qy_frac)
+                avg_dphi = abs(np.mean(dphi))
+                if alanlar.poincare_quad_index < 0:
+                    return (alanlar.nFODO * avg_dphi) / (2 * np.pi)
+                return avg_dphi / (2 * np.pi)
+            Qx = _tune_full(x_pc, xp_pc)
+            Qy = _tune_full(y_pc, yp_pc)
+            
             print(f"-> Betatron Tune Qx          : {Qx:.4f}")
             print(f"-> Betatron Tune Qy          : {Qy:.4f}")
         
     sx_arr = sonuclar_local[:, 6]
-    slope_sx, _ = np.polyfit(t_array, sx_arr, 1)
-    print(f"-> Radyal Spin Eğimi (S_x-t): {slope_sx*1e9:.2f} nrad/s ({slope_sx:.2e} rad/s)")
+    sy_arr = sonuclar_local[:, 7]
+    
+    # Savitzky-Golay Filtresi ile Salinim Giderimi
+    from scipy.signal import savgol_filter
+    window_size = (len(sx_arr) // 4) * 2 + 1 
+    if window_size < 5: window_size = 5
+    sx_filtered = savgol_filter(sx_arr, window_length=window_size, polyorder=1)
+    sy_filtered = savgol_filter(sy_arr, window_length=window_size, polyorder=1)
+    
+    trim = int(len(sx_filtered) * 0.1)
+    if trim > 0 and len(sx_filtered) - 2 * trim > 10:
+        fit_t = t_array[trim:-trim]
+        fit_sx = sx_filtered[trim:-trim]
+        fit_sy = sy_filtered[trim:-trim]
+        slope_sx, _ = np.polyfit(fit_t, fit_sx, 1)
+        slope_sy, _ = np.polyfit(fit_t, fit_sy, 1)
+    else:
+        slope_sx, _ = np.polyfit(t_array, sx_filtered, 1)
+        slope_sy, _ = np.polyfit(t_array, sy_filtered, 1)
+    
+    print(f"-> Radyal Trend Eğimi (S_x-t): {slope_sx:.4e} rad/s")
+    print(f"-> Dikey  Trend Eğimi (S_y-t): {slope_sy:.4e} rad/s")
     print("--------------------------------------------------")
     
     print("Sürekli (Continuous) veriler yazılıyor (simulation_data.txt)...")
+    save_interval = max(1, int(adim_sayisi / return_steps))
+    t_array = t0 + np.arange(sonuclar_local.shape[0]) * (save_interval * h)
     
     with open("simulation_data.txt", "w") as f:
         f.write("Time(s)\tDev_X_m\tY_vert_m\tZ_long_m\tPx\tPy\tPz\tS_Rady\tS_Dikey\tS_Long\n")

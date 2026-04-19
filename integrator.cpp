@@ -21,7 +21,26 @@ inline double dot_product(const double* a, const double* b) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 }
 
-void get_electromagnetic_fields(double t, const double* r, const double* field_params, double* E, double* B) {
+void rotate_all(double* y, double theta) {
+    double X = y[0], Y = y[1];
+    double Px = y[3], Py = y[4];
+    double Sx = y[6], Sy = y[7];
+    
+    double cos_th = std::cos(theta);
+    double sin_th = std::sin(theta);
+    
+    y[0] = X * cos_th - Y * sin_th;
+    y[1] = X * sin_th + Y * cos_th;
+    
+    y[3] = Px * cos_th - Py * sin_th;
+    y[4] = Px * sin_th + Py * cos_th;
+    
+    y[6] = Sx * cos_th - Sy * sin_th;
+    y[7] = Sx * sin_th + Sy * cos_th;
+}
+
+// element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D
+void get_electromagnetic_fields(double t, const double* r, const double* field_params, int element_type, double* E, double* B) {
     double R0       = field_params[0];
     double E0       = field_params[1];
     double n        = field_params[2];
@@ -30,79 +49,62 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double B0long   = field_params[5];
     double quadK1   = field_params[6];
     double sextK1   = field_params[7];
-    double quadSwitch = field_params[8];
-    double sextSwitch = field_params[9];
-    int    nFODO    = (int)(field_params[12] + 0.5);
-    double quadLen  = field_params[13];
+    
+    double X = r[0], Y = r[1], Z = r[2];
+    double R = std::sqrt(X*X + Y*Y);
 
-    double X_g = r[0], Y_g = r[1], Z_g = r[2];
-    double R   = std::sqrt(X_g*X_g + Y_g*Y_g);
-    double dev = R - R0;
+    E[0] = 0.0; E[1] = 0.0; E[2] = 0.0;
+    B[0] = 0.0; B[1] = 0.0; B[2] = 0.0;
 
-    // cos/sin doğrudan X/R, Y/R — atan2+cos/sin çağrısından kaçınılır
-    double cos_th = X_g / R;
-    double sin_th = Y_g / R;
-
-    double E_r = 0.0, E_z = 0.0;
-    if (R > 1e-6) {
-        if (n == 1.0) {
-            E_r = E0 * R0 / R;
-        } else {
-            double zR  = Z_g / R;
-            double zR2 = zR * zR;
-            double pow_n = std::pow(R0/R, n);
-            E_r = E0 * pow_n * (1.0 - 0.5*(n*n-1.0)*zR2
-                + (n*n-1.0)*(n+1.0)*(n+3.0)*zR2*zR2/24.0);
-            E_z = E0 * pow_n * ((n-1.0)*zR
-                - (n*n-1.0)*(n+1.0)*zR2*zR/6.0);
-        }
-    }
-    E[0] = E_r * cos_th;
-    E[1] = E_r * sin_th;
-    E[2] = E_z;
-
-    B[0] = -B0rad * cos_th + B0long * sin_th;
-    B[1] = -B0rad * sin_th - B0long * cos_th;
-    B[2] = B0ver;
-
-    if ((quadSwitch > 0.0 || sextSwitch > 0.0) && nFODO > 0 && quadLen > 0.0) {
-        // Quad sektörü tespiti için atan2 sadece burada hesaplanır
-        double theta_pos = std::atan2(Y_g, X_g);
-        if (theta_pos < 0) theta_pos += 2.0 * M_PI;
-
-        double sector_angle = M_PI / nFODO;
-        int quad_index = (int)(theta_pos / sector_angle + 0.5);
-        if (quad_index >= 2 * nFODO) quad_index = 0;
-
-        double quad_center_theta = quad_index * sector_angle;
-        double diff_theta = theta_pos - quad_center_theta;
-        while (diff_theta >  M_PI) diff_theta -= 2.0 * M_PI;
-        while (diff_theta < -M_PI) diff_theta += 2.0 * M_PI;
-
-        double dist_from_center = R0 * std::abs(diff_theta);
-
-        if (dist_from_center <= quadLen / 2.0) {
-            if (quadSwitch > 0.0) {
-                double current_K1 = ((quad_index % 2) == 0) ? quadK1 : -quadK1;
-                double B_quad_r   = current_K1 * Z_g;
-                double B_quad_z   = current_K1 * dev;
-                B[0] += B_quad_r * cos_th;
-                B[1] += B_quad_r * sin_th;
-                B[2] += B_quad_z;
-            }
-            if (sextSwitch > 0.0) {
-                double current_sK1 = ((quad_index % 2) == 0) ? sextK1 : -sextK1;
-                double B_sext_r    = current_sK1 * dev * Z_g;
-                double B_sext_z    = current_sK1 * (dev*dev - Z_g*Z_g);
-                B[0] += B_sext_r * cos_th;
-                B[1] += B_sext_r * sin_th;
-                B[2] += B_sext_z;
+    if (element_type == 0) {
+        // DEFLECTOR
+        double cos_th = X / R;
+        double sin_th = Y / R;
+        double E_r = 0.0, E_z = 0.0;
+        if (R > 1e-6) {
+            if (n == 1.0) {
+                E_r = E0 * R0 / R;
+            } else {
+                double zR  = Z / R;
+                double zR2 = zR * zR;
+                double pow_n = std::pow(R0/R, n);
+                E_r = E0 * pow_n * (1.0 - 0.5*(n*n-1.0)*zR2 + (n*n-1.0)*(n+1.0)*(n+3.0)*zR2*zR2/24.0);
+                E_z = E0 * pow_n * ((n-1.0)*zR - (n*n-1.0)*(n+1.0)*zR2*zR/6.0);
             }
         }
+        E[0] = E_r * cos_th;
+        E[1] = E_r * sin_th;
+        E[2] = E_z;
+        
+        B[0] = -B0rad * cos_th + B0long * sin_th;
+        B[1] = -B0rad * sin_th - B0long * cos_th;
+        B[2] = B0ver;
+    } else if (element_type == 2 || element_type == 3) {
+        // QUAD
+        double current_K1 = (element_type == 2) ? quadK1 : -quadK1;
+        
+        // Quad lies on a straight path, so lateral deviation is purely horizontal X minus R0.
+        double dev_quad = X - R0; 
+        
+        double B_quad_r = current_K1 * Z;
+        double B_quad_z = current_K1 * dev_quad;
+        
+        // Sextupole 
+        double sextSwitch = field_params[9];
+        if (sextSwitch > 0.0) {
+            double current_sK1 = (element_type == 2) ? sextK1 : -sextK1;
+            B_quad_r += current_sK1 * dev_quad * Z;
+            B_quad_z += current_sK1 * (dev_quad*dev_quad - Z*Z);
+        }
+        
+        // fields acting transversely 
+        B[0] = B_quad_r; 
+        B[1] = 0.0;      
+        B[2] = B_quad_z; 
     }
 }
 
-void compute_rhs(double t, const double* y, const double* field_params, double* dydt, int dim) {
+void compute_rhs(double t, const double* y, const double* field_params, int element_type, double* dydt, int dim) {
     const double* r = &y[0];
     const double* p = &y[3];
     const double* s = &y[6];
@@ -118,7 +120,7 @@ void compute_rhs(double t, const double* y, const double* field_params, double* 
     }
 
     double E[3], B[3];
-    get_electromagnetic_fields(t, r, field_params, E, B);
+    get_electromagnetic_fields(t, r, field_params, element_type, E, B);
 
     double v_cross_B[3];
     cross_product(v, B, v_cross_B);
@@ -157,16 +159,15 @@ void compute_rhs(double t, const double* y, const double* field_params, double* 
     }
 }
 
-void gl4_step(double t, double* y, const double* field_params, double h, int dim) {
+void gl4_step_element(double t, double* y, const double* field_params, int element_type, double h, int dim) {
     const double sq3 = std::sqrt(3.0) / 6.0;
     const double c1  = 0.5 - sq3, c2 = 0.5 + sq3;
     const double a11 = 0.25, a12 = 0.25 - sq3;
     const double a21 = 0.25 + sq3, a22 = 0.25;
 
-    // dim her zaman 9 — heap allocation yerine stack dizileri
     double k1[9], k2[9], y1[9], y2[9];
 
-    compute_rhs(t, y, field_params, k1, dim);
+    compute_rhs(t, y, field_params, element_type, k1, dim);
     for (int i = 0; i < dim; ++i) k2[i] = k1[i];
 
     for (int iter = 0; iter < 4; ++iter) {
@@ -174,22 +175,12 @@ void gl4_step(double t, double* y, const double* field_params, double h, int dim
             y1[i] = y[i] + h * (a11*k1[i] + a12*k2[i]);
             y2[i] = y[i] + h * (a21*k1[i] + a22*k2[i]);
         }
-        compute_rhs(t + c1*h, y1, field_params, k1, dim);
-        compute_rhs(t + c2*h, y2, field_params, k2, dim);
+        compute_rhs(t + c1*h, y1, field_params, element_type, k1, dim);
+        compute_rhs(t + c2*h, y2, field_params, element_type, k2, dim);
     }
 
     for (int i = 0; i < dim; ++i)
         y[i] += h * (0.5*k1[i] + 0.5*k2[i]);
-}
-
-// RF kovuğu quad indeks 0'da: theta_rf = 0 * (pi/nFODO) = 0
-// Parçacık bu quad'a her girişinde anlık bir momentum kick'i alır.
-static bool is_in_rf_quad(double theta, double R0, double quadLen) {
-    // theta [0, 2pi) aralığında; RF merkezi theta_rf = 0
-    // Wrap-around: theta = 2pi - epsilon da merkezin yakınında sayılır
-    double d = theta;  // zaten [0,2pi) aralığında
-    if (d > M_PI) d = 2.0*M_PI - d;  // |theta - 0| mod 2pi, kısa yol
-    return (R0 * d <= quadLen / 2.0);
 }
 
 void run_integration(double* y_init, const double* field_params,
@@ -197,9 +188,10 @@ void run_integration(double* y_init, const double* field_params,
                      int return_steps, double* history_out,
                      int max_poincare, double* poincare_out,
                      double* poincare_t, int* poincare_count) {
-    long long total_steps = (long long)((t_end - t0) / h);
-    if (total_steps <= 0) return;
-    long long save_interval = total_steps / return_steps;
+    
+    long long total_steps_est = (long long)((t_end - t0) / h);
+    if (total_steps_est <= 0) return;
+    long long save_interval = total_steps_est / return_steps;
     if (save_interval == 0) save_interval = 1;
 
     double R0       = field_params[0];
@@ -208,200 +200,194 @@ void run_integration(double* y_init, const double* field_params,
     double dir      = field_params[11];
     double driftLen = field_params[18];
 
-    int    target_quad  = (int)(field_params[14] + 0.5);
-    double target_angle = target_quad * (M_PI / nFODO);
+    int    target_quad  = (int)std::round(field_params[14]);
 
     const bool rf_on = (field_params[15] > 0.0);
     double V_rf      = field_params[16];
-    double h_rf      = field_params[17];  // harmonik sayı
+    double h_rf      = field_params[17];
 
     double M_GeV   = 0.938272046;
-    double p_magic = M_GeV / std::sqrt(G_P);               // GeV/c
-    double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV); // GeV
+    double p_magic = M_GeV / std::sqrt(G_P);
+    double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV);
     double beta_magic = p_magic / E_magic;
-    // Drift bölgeleri açısal konuma göre çember üzerinde tanımlı; tur başına gerçek yol ≈ 2πR0.
-    // (yay + quad + 96 drift teleportasyonu ≈ 600 m = 2πR0; 4*nFODO*driftLen eklemek iki kez saymaktır)
-    double circumference = 2.0 * M_PI * R0;
+    double circumference = 2.0 * M_PI * R0 + 4.0 * nFODO * driftLen + 2.0 * nFODO * quadLen; 
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
-    bool   prev_in_rf = false;
-    double p_tang_ref  = 0.0;
-    bool   have_ref    = false;
-
     std::ofstream rf_out;
-    if (rf_on) {
-        rf_out.open("rf.txt", std::ios::app);
-        if (rf_out.is_open() && rf_out.tellp() == 0)
-            rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
-    }
+    rf_out.open("rf.txt", std::ios::app);
+    if (rf_out.is_open() && rf_out.tellp() == 0)
+        rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
 
-    // Drift bölgesi tespiti (açısal konum bazlı)
-    auto in_drift_zone = [&](double theta_pos) -> bool {
-        if (driftLen <= 0.0 || nFODO <= 0) return false;
-        double sector = M_PI / nFODO;
-        int qi = (int)(theta_pos / sector + 0.5);
-        if (qi >= 2 * nFODO) qi = 0;
-        double diff = theta_pos - qi * sector;
-        while (diff >  M_PI) diff -= 2.0 * M_PI;
-        while (diff < -M_PI) diff += 2.0 * M_PI;
-        double dist = R0 * std::abs(diff);
-        return (dist > quadLen / 2.0 && dist <= quadLen / 2.0 + driftLen);
-    };
+    double t = t0;
+    int save_idx = 0;
+    int p_saved = 0;
+    long long global_step = 0;
+    long long print_interval = total_steps_est / 10;
+    if (print_interval == 0) print_interval = 1;
 
-    double t             = t0;
-    double prev_theta_uw = 0.0;
-    int    save_idx      = 0;
-    int    p_saved       = 0;
+    double p_tang_ref = 0.0;
+    bool have_ref = false;
 
-    // Zaman bazlı kayıt: step_advance sebebiyle atlanan noktaların önüne geçer
-    double t_save_interval = (t_end > t0) ? (t_end - t0) / return_steps : 1.0;
-    double t_save_next     = t0 + t_save_interval;
-    double t_print_next    = t0;
-    double t_print_interval = (t_end - t0) / 10.0;
-
-    bool prev_in_drift = false;
+    int total_fodo_cells = 0;
+    double global_S = 0.0;
+    // Lengths & Angles 
+    double L_def = (2.0 * M_PI * R0) / (2.0 * nFODO);
+    double Phi_def = L_def / R0; 
 
     while (t < t_end) {
-        // İlerleme çıktısı (zaman bazlı)
-        if (t >= t_print_next) {
-            int pct = (int)((t - t0) * 100.0 / (t_end - t0));
-            std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
-            std::fflush(stdout);
-            t_print_next += t_print_interval;
-        }
+        int current_fodo = total_fodo_cells % nFODO;
 
-        double old_X = y_init[0], old_Y = y_init[1];
-        double old_theta = std::atan2(old_Y, old_X);
-        if (old_theta < 0) old_theta += 2.0 * M_PI;
-
-        bool cur_in_drift = in_drift_zone(old_theta);
-
-        if (cur_in_drift && !prev_in_drift) {
-            // Drift bölgesine ilk kez girildi: YAY BOYUNCA teleportasyon.
-            // Parçacığı driftLen yay kadar halka merkezi etrafında döndür.
-            // Bu, R'yi R0'da tutar ve driftLen²/(2R0) ≈ 22.7 mm radyal sapmayı önler.
-            // Alan-serbest bölgede Thomas-BMT: E=B=0 → Ω=0 → dS/dt=0 → S küresel çerçevede sabit.
-            double dth = driftLen / R0;
-
-            // Dolaşım yönünü belirle: p'nin saat-yönü-tersi teğetsel bileşeninin işareti
-            double X = y_init[0], Y = y_init[1];
-            double R_cur = std::sqrt(X*X + Y*Y);
-            double Px = y_init[3], Py = y_init[4];
-            double tang = (-Y * Px + X * Py) / R_cur;
-            double angle = (tang >= 0.0) ? dth : -dth;
-            double ca = std::cos(angle), sa = std::sin(angle);
-
-            // Konumu döndür (R korunur)
-            y_init[0] = X*ca - Y*sa;
-            y_init[1] = X*sa + Y*ca;
-
-            // Momentumu döndür (teğetsel yön ve |p| korunur)
-            y_init[3] = Px*ca - Py*sa;
-            y_init[4] = Px*sa + Py*ca;
-
-            // Spin: küresel Kartezyen'de değişmez
-            // y_init[6..8] sabit
-
-            // Zaman ilerlemesi
-            double p_sq = Px*Px + Py*Py + y_init[5]*y_init[5];
-            double gam  = std::sqrt(1.0 + p_sq / (M_P * C_LIGHT * M_P * C_LIGHT));
-            double v_mag = std::sqrt(p_sq) / (gam * M_P);
-            double dt_tele = driftLen / v_mag;
-            t += dt_tele;
-            if (t > t_end) t = t_end;
-        } else if (!cur_in_drift) {
-            // Yay veya quad bölgesi: normal GL4 adımı
-            gl4_step(t, y_init, field_params, h, dim);
-            t += h;
-        } else {
-            // Zaten drift içindeydik (teleport sonrası yüzer nokta sınırı): tek GL4 adımı
-            gl4_step(t, y_init, field_params, h, dim);
-            t += h;
-        }
-
-        prev_in_drift = cur_in_drift;
-
-        double cur_X = y_init[0], cur_Y = y_init[1];
-        double cur_theta = std::atan2(cur_Y, cur_X);
-        if (cur_theta < 0) cur_theta += 2.0 * M_PI;
-
-        // Unwrapped theta (Poincaré için)
-        double dtheta = cur_theta - old_theta;
-        while (dtheta >  M_PI) dtheta -= 2.0 * M_PI;
-        while (dtheta < -M_PI) dtheta += 2.0 * M_PI;
-        double cur_theta_uw = prev_theta_uw + dtheta;
-
-        // --- RF kick: quad indeks 0'a ilk girişte ---
-        if (rf_on) {
-            bool cur_in_rf = is_in_rf_quad(cur_theta, R0, quadLen);
-
-            if (!prev_in_rf && cur_in_rf) {
-                // RF faz
+        // Sequence internal to one FODO cell
+        for (int elem = 0; elem < 8; ++elem) {
+            if (t >= t_end) break;
+            
+            // RF flag execution
+            if (current_fodo == 0 && elem == 0) {
                 double phi_rf = omega_rf * t;
                 while (phi_rf >= 2.0*M_PI) phi_rf -= 2.0*M_PI;
                 while (phi_rf <  0.0     ) phi_rf += 2.0*M_PI;
 
-                // Teğetsel yön (dolaşım yönüne göre)
-                double R      = std::sqrt(cur_X*cur_X + cur_Y*cur_Y);
-                double cos_th = cur_X / R;
-                double sin_th = cur_Y / R;
+                if (rf_on) {
+                    double p_sq = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
+                    double E_J  = std::sqrt(p_sq*C_LIGHT*C_LIGHT + M_P*M_P*C_LIGHT*C_LIGHT);
+                    double beta = std::sqrt(p_sq) * C_LIGHT / E_J;
+                    double dp   = Q_E * V_rf * std::sin(phi_rf) / (beta * C_LIGHT);
+    
+                    y_init[4] += dp * dir; 
+                }
 
-                // Momentum kick: dp = q*V*sin(phi) / (beta * c)
-                double p_sq = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
-                double mc   = M_P * C_LIGHT;
-                double E_J  = std::sqrt(p_sq*C_LIGHT*C_LIGHT + mc*mc*C_LIGHT*C_LIGHT);
-                double beta = std::sqrt(p_sq) * C_LIGHT / E_J;
-                double dp   = Q_E * V_rf * std::sin(phi_rf) / (beta * C_LIGHT);
-
-                y_init[3] += dp * dir * (-sin_th);
-                y_init[4] += dp * dir * ( cos_th);
-
-                // Kayıt
                 if (rf_out.is_open()) {
-                    double p_tang = -y_init[3]*sin_th + y_init[4]*cos_th;
+                    double p_tang = y_init[4]; 
                     if (!have_ref) { p_tang_ref = p_tang; have_ref = true; }
-                    double dp_over_p = (std::abs(p_tang_ref) > 1e-40)
-                                     ? (p_tang - p_tang_ref) / p_tang_ref : 0.0;
+                    double dp_over_p = (std::abs(p_tang_ref) > 1e-40) ? (p_tang - p_tang_ref) / p_tang_ref : 0.0;
                     rf_out << std::scientific << std::setprecision(16)
                            << t << "\t" << phi_rf << "\t" << dp_over_p << "\n";
                 }
             }
-            prev_in_rf = cur_in_rf;
-        }
+            
+            // Poincare trigger
+            bool is_poincare_mark = false;
+            if (target_quad < 0) {
+                if (elem == 0) is_poincare_mark = true;
+            } else {
+                if ((target_quad % 2 == 0) && elem == 0) {
+                    if (current_fodo == (target_quad / 2)) is_poincare_mark = true;
+                } else if ((target_quad % 2 == 1) && elem == 4) {
+                    if (current_fodo == (target_quad / 2)) is_poincare_mark = true;
+                }
+            }
+            if (is_poincare_mark && p_saved < max_poincare) {
+                poincare_t[p_saved] = t;
+                for (int i = 0; i < dim; ++i) poincare_out[p_saved*dim + i] = y_init[i];
+                double true_x = 0.0;
+                if (elem == 0 || elem == 4) {
+                    double R = std::sqrt(y_init[0]*y_init[0] + y_init[1]*y_init[1]);
+                    true_x = R - R0;
+                } else {
+                    true_x = y_init[0] - R0;
+                }
+                poincare_out[p_saved*dim + 0] = true_x + R0;
+                poincare_out[p_saved*dim + 1] = global_S;
+                p_saved++;
+            }
 
-        // --- Poincaré kesiti ---
-        double p_rel = prev_theta_uw - target_angle;
-        double c_rel = cur_theta_uw  - target_angle;
-        // En az yarım tur geçmeden Poincaré tetiklemez (saat yönü başlangıç false-trigger önlemi)
-        if (std::abs(cur_theta_uw) >= M_PI &&
-            std::floor(c_rel/(2.0*M_PI)) != std::floor(p_rel/(2.0*M_PI)) && p_saved < max_poincare) {
-            poincare_t[p_saved] = t;
-            for (int i = 0; i < dim; ++i)
-                poincare_out[p_saved*dim + i] = y_init[i];
-            p_saved++;
-        }
-        prev_theta_uw = cur_theta_uw;
+            int type = 0;
+            double target_val = 0;
+            if (elem == 0 || elem == 4) { type = 0; target_val = Phi_def; }
+            else if (elem == 1 || elem == 3 || elem == 5 || elem == 7) { type = 1; target_val = driftLen; }
+            else if (elem == 2) { type = 2; target_val = quadLen; }
+            else if (elem == 6) { type = 3; target_val = quadLen; }
 
-        // --- Geçmiş kaydı (zaman bazlı: step atlama sorununu giderir) ---
-        while (t >= t_save_next && save_idx < return_steps) {
-            for (int i = 0; i < dim; ++i)
-                history_out[save_idx*dim + i] = y_init[i];
-            save_idx++;
-            t_save_next += t_save_interval;
+            double start_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
+            double accumulated = 0.0;
+
+            while (accumulated < target_val && t < t_end) {
+                double h_step = h;
+                
+                double p_sq = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
+                double gam = std::sqrt(1.0 + p_sq / (M_P * M_P * C_LIGHT * C_LIGHT));
+                double vx = y_init[3]/(gam*M_P);
+                double vy = y_init[4]/(gam*M_P);
+                
+                double val_rate = 0.0;
+                if (type == 0) {
+                    double R2 = y_init[0]*y_init[0] + y_init[1]*y_init[1];
+                    val_rate = (y_init[0]*vy - y_init[1]*vx) / R2; 
+                } else {
+                    val_rate = vy;
+                }
+                
+                // fractionally approach bound
+                bool break_after = false;
+                if (std::abs(val_rate) > 1e-12) {
+                    double time_remaining = (target_val - accumulated) / std::abs(val_rate);
+                    if (time_remaining <= h_step) {
+                        h_step = time_remaining;
+                        if (h_step < 0.0) h_step = 0.0;
+                        break_after = true;
+                    }
+                }
+                if (t + h_step > t_end) {
+                    h_step = t_end - t;
+                    break_after = true;
+                }
+                
+                double old_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
+                
+                gl4_step_element(t, y_init, field_params, type, h_step, dim);
+                t += h_step;
+                global_step++;
+                global_S += vy * h_step;
+
+                if (global_step % print_interval == 0) {
+                    int pct = (int)(t * 100 / t_end);
+                    std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
+                    std::fflush(stdout);
+                }
+
+                if (global_step % save_interval == 0 && save_idx < return_steps) {
+                    for (int i = 0; i < dim; ++i) history_out[save_idx*dim + i] = y_init[i];
+                double true_x = 0.0;
+                if (elem == 0 || elem == 4) {
+                    double R = std::sqrt(y_init[0]*y_init[0] + y_init[1]*y_init[1]);
+                    true_x = R - R0;
+                } else {
+                    true_x = y_init[0] - R0;
+                }
+                history_out[save_idx*dim + 0] = true_x + R0;
+                    history_out[save_idx*dim + 1] = global_S;
+                    save_idx++;
+                }
+
+                double new_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
+                if (type == 0) {
+                    double dth = new_metric - old_metric;
+                    while(dth < -M_PI) dth += 2.0*M_PI;
+                    while(dth >  M_PI) dth -= 2.0*M_PI;
+                    accumulated += std::abs(dth);
+                } else {
+                    accumulated += std::abs(new_metric - old_metric);
+                }
+                
+                if (break_after) break;
+                if (target_val - accumulated <= 1e-11) break;
+            }
+            
+            // EXACT physical transformation to place origin of next element
+            if (type == 0) {
+                // We rotated geometrically by Phi_def exactly
+                double sign = (y_init[1] >= 0) ? 1.0 : -1.0;
+                rotate_all(y_init, -sign * Phi_def);
+            } else {
+                // We translated geometrically by the length exactly
+                double sign = (y_init[1] >= 0) ? 1.0 : -1.0;
+                y_init[1] -= sign * target_val;
+            }
         }
+        total_fodo_cells++;
     }
-
-    // Son durumu son slota kaydet (son kayıt noktasının eksik kalmaması için)
-    if (save_idx < return_steps) {
-        for (int i = 0; i < dim; ++i)
-            history_out[save_idx*dim + i] = y_init[i];
-        save_idx++;
-    }
-    // Kalan slotları son geçerli değerle doldur
-    for (int fill = save_idx; fill < return_steps; fill++)
-        for (int i = 0; i < dim; ++i)
-            history_out[fill*dim + i] = history_out[(save_idx-1)*dim + i];
-
+    
+    printf("target_quad: %d, p_saved: %d\n", target_quad, p_saved);
     poincare_count[0] = p_saved;
     std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);
     std::fflush(stdout);
