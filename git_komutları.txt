@@ -1,0 +1,13 @@
+    git pull origin main
+
+çakışma varsa:
+    git stash
+    git pull origin main
+    git stash pop
+
+.so dosyasını derleme:
+    g++ -O3 -ffast-math -shared -fPIC -o lib_integrator.so integrator.cpp
+    g++ -O3 -ffast-math -dynamiclib -o integrator.dylib integrator.cpp
+
+yüklememe konusunda çok ısrarcı ise:
+    git push origin main --force

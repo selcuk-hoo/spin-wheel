@@ -66,36 +66,31 @@ class FieldParams:
         return (ctypes.c_double * len(params))(*params)
 
 def convert_global_to_local_matrix(history_global_np, R0, initial_z):
-    X_g = history_global_np[:, 0]
-    Y_g = history_global_np[:, 1]
-    Z_g = history_global_np[:, 2]
+    X_c  = history_global_np[:, 0]
+    S_c  = history_global_np[:, 1]
+    Z_c  = history_global_np[:, 2]
     
-    theta_arr = np.arctan2(Y_g, X_g)
-    theta_unwrapped = np.unwrap(theta_arr)
-    z_local_arr = (theta_unwrapped - theta_unwrapped[0]) * R0 + initial_z
+    Px_c = history_global_np[:, 3]
+    Py_c = history_global_np[:, 4]
+    Pz_c = history_global_np[:, 5]
     
-    R_g_arr = np.sqrt(X_g**2 + Y_g**2)
+    Sx_c = history_global_np[:, 6]
+    Sy_c = history_global_np[:, 7]
+    Sz_c = history_global_np[:, 8]
+    
     history_local = np.zeros_like(history_global_np)
     
-    history_local[:, 0] = R_g_arr - R0
-    history_local[:, 1] = Z_g
-    history_local[:, 2] = z_local_arr
+    history_local[:, 0] = X_c - R0
+    history_local[:, 1] = Z_c
+    history_local[:, 2] = S_c + initial_z
     
-    P_X_g = history_global_np[:, 3]
-    P_Y_g = history_global_np[:, 4]
-    P_Z_g = history_global_np[:, 5]
+    history_local[:, 3] = Px_c
+    history_local[:, 4] = Pz_c
+    history_local[:, 5] = Py_c
     
-    history_local[:, 3] = P_X_g * np.cos(theta_arr) + P_Y_g * np.sin(theta_arr)
-    history_local[:, 4] = P_Z_g
-    history_local[:, 5] = -P_X_g * np.sin(theta_arr) + P_Y_g * np.cos(theta_arr)
-    
-    S_X_g = history_global_np[:, 6]
-    S_Y_g = history_global_np[:, 7]
-    S_Z_g = history_global_np[:, 8]
-    
-    history_local[:, 6] = S_X_g * np.cos(theta_arr) + S_Y_g * np.sin(theta_arr)
-    history_local[:, 7] = S_Z_g
-    history_local[:, 8] = -S_X_g * np.sin(theta_arr) + S_Y_g * np.cos(theta_arr)
+    history_local[:, 6] = Sx_c
+    history_local[:, 7] = Sz_c
+    history_local[:, 8] = Sy_c
     
     return history_local
 

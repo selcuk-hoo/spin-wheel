@@ -210,13 +210,15 @@ void run_integration(double* y_init, const double* field_params,
     double p_magic = M_GeV / std::sqrt(G_P);
     double E_magic = std::sqrt(p_magic*p_magic + M_GeV*M_GeV);
     double beta_magic = p_magic / E_magic;
-    double circumference = 2.0 * M_PI * R0 + 4.0 * nFODO * driftLen + 2.0 * nFODO * quadLen; 
+    double circumference = 2.0 * M_PI * R0 + 4.0 * nFODO * driftLen; 
     double omega_rf = h_rf * 2.0 * M_PI * beta_magic * C_LIGHT / circumference;
 
     std::ofstream rf_out;
-    rf_out.open("rf.txt", std::ios::app);
-    if (rf_out.is_open() && rf_out.tellp() == 0)
-        rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
+    if (rf_on) {
+        rf_out.open("rf.txt", std::ios::app);
+        if (rf_out.is_open() && rf_out.tellp() == 0)
+            rf_out << "T_sec\tPhi_RF_rad\tdp_over_p\n";
+    }
 
     double t = t0;
     int save_idx = 0;
@@ -242,19 +244,17 @@ void run_integration(double* y_init, const double* field_params,
             if (t >= t_end) break;
             
             // RF flag execution
-            if (current_fodo == 0 && elem == 0) {
+            if (current_fodo == 0 && elem == 0 && rf_on) {
                 double phi_rf = omega_rf * t;
                 while (phi_rf >= 2.0*M_PI) phi_rf -= 2.0*M_PI;
                 while (phi_rf <  0.0     ) phi_rf += 2.0*M_PI;
 
-                if (rf_on) {
-                    double p_sq = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
-                    double E_J  = std::sqrt(p_sq*C_LIGHT*C_LIGHT + M_P*M_P*C_LIGHT*C_LIGHT);
-                    double beta = std::sqrt(p_sq) * C_LIGHT / E_J;
-                    double dp   = Q_E * V_rf * std::sin(phi_rf) / (beta * C_LIGHT);
-    
-                    y_init[4] += dp * dir; 
-                }
+                double p_sq = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
+                double E_J  = std::sqrt(p_sq*C_LIGHT*C_LIGHT + M_P*M_P*C_LIGHT*C_LIGHT);
+                double beta = std::sqrt(p_sq) * C_LIGHT / E_J;
+                double dp   = Q_E * V_rf * std::sin(phi_rf) / (beta * C_LIGHT);
+
+                y_init[4] += dp * dir; 
 
                 if (rf_out.is_open()) {
                     double p_tang = y_init[4]; 
@@ -318,19 +318,12 @@ void run_integration(double* y_init, const double* field_params,
                 }
                 
                 // fractionally approach bound
-                bool break_after = false;
                 if (std::abs(val_rate) > 1e-12) {
                     double time_remaining = (target_val - accumulated) / std::abs(val_rate);
-                    if (time_remaining <= h_step) {
-                        h_step = time_remaining;
-                        if (h_step < 0.0) h_step = 0.0;
-                        break_after = true;
-                    }
+                    if (time_remaining < h_step) h_step = time_remaining;
                 }
-                if (t + h_step > t_end) {
-                    h_step = t_end - t;
-                    break_after = true;
-                }
+                if (h_step < 1e-13) h_step = 1e-13; 
+                if (t + h_step > t_end) h_step = t_end - t;
                 
                 double old_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
                 
@@ -369,7 +362,6 @@ void run_integration(double* y_init, const double* field_params,
                     accumulated += std::abs(new_metric - old_metric);
                 }
                 
-                if (break_after) break;
                 if (target_val - accumulated <= 1e-11) break;
             }
             
