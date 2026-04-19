@@ -152,8 +152,28 @@ def main():
             print(f"-> Betatron Tune Qy          : {Qy:.4f}")
         
     sx_arr = sonuclar_local[:, 6]
-    slope_sx, _ = np.polyfit(t_array, sx_arr, 1)
-    print(f"-> Radyal Spin Eğimi (S_x-t): {slope_sx*1e9:.2f} nrad/s ({slope_sx:.2e} rad/s)")
+    sy_arr = sonuclar_local[:, 7]
+    
+    # Savitzky-Golay Filtresi ile Salinim Giderimi
+    from scipy.signal import savgol_filter
+    window_size = (len(sx_arr) // 4) * 2 + 1 
+    if window_size < 5: window_size = 5
+    sx_filtered = savgol_filter(sx_arr, window_length=window_size, polyorder=1)
+    sy_filtered = savgol_filter(sy_arr, window_length=window_size, polyorder=1)
+    
+    trim = int(len(sx_filtered) * 0.1)
+    if trim > 0 and len(sx_filtered) - 2 * trim > 10:
+        fit_t = t_array[trim:-trim]
+        fit_sx = sx_filtered[trim:-trim]
+        fit_sy = sy_filtered[trim:-trim]
+        slope_sx, _ = np.polyfit(fit_t, fit_sx, 1)
+        slope_sy, _ = np.polyfit(fit_t, fit_sy, 1)
+    else:
+        slope_sx, _ = np.polyfit(t_array, sx_filtered, 1)
+        slope_sy, _ = np.polyfit(t_array, sy_filtered, 1)
+    
+    print(f"-> Radyal Trend Eğimi (S_x-t): {slope_sx:.4e} rad/s")
+    print(f"-> Dikey  Trend Eğimi (S_y-t): {slope_sy:.4e} rad/s")
     print("--------------------------------------------------")
     
     print("Sürekli (Continuous) veriler yazılıyor (simulation_data.txt)...")

@@ -11,3 +11,12 @@
 
 yüklememe konusunda çok ısrarcı ise:
     git push origin main --force
+
+sürüm oluşturma:
+    git add .
+    git commit -m "duz bolge, tune'lar ve rf duzeltildi"
+    git tag -a v2.0 -m "demet ve spin dinamigi tamam gibi gorunuyor."
+    git push origin v2.0
+
+release oluşturma:
+    gh release create v2.0 --title "Demet ve Spin Dinamiği Sürümü" --notes "Düz bölge, tune'lar ve RF düzeltmeleri eklendi."

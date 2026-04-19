@@ -133,14 +133,33 @@ def main():
     axs[0,2].set_ylabel("dp/p ($10^{-3}$)")
     axs[0,2].grid(True, linestyle='--', alpha=0.7)
     
-    axs[0,3].plot(t, sx, 'k-', lw=1.5)
+    axs[0,3].plot(t, sx, 'k-', lw=1.5, alpha=0.5, label='Ham S_x')
+    
+    # Savitzky-Golay Sx Filtreleme
+    from scipy.signal import savgol_filter
+    window_size = (len(sx) // 4) * 2 + 1
+    if window_size >= 5:
+        sx_filt = savgol_filter(sx, window_length=window_size, polyorder=1)
+        axs[0,3].plot(t, sx_filt, 'r--', lw=2, label='Filtrelenmiş')
+        axs[0,3].legend(loc='upper right', fontsize=8)
+    else:
+        sx_filt = sx
+        
     axs[0,3].set_title("Radyal Spin ($S_x$-t)")
     axs[0,3].set_xlabel("Zaman (μs)")
     axs[0,3].set_ylabel("$S_x$")
     axs[0,3].grid(True, linestyle='--', alpha=0.7)
     
-    slope_sx, _ = np.polyfit(data[:, 0], sx, 1)
-    axs[0,3].text(0.05, 0.05, f"Eğim: {slope_sx*1e9:.2f} nrad/s\n({slope_sx:.2e} rad/s)", transform=axs[0,3].transAxes, fontsize=10, verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    # Kenar etkilerini yok etmek için %10'luk baştan sondan kırpmalı (robust) slope hesabı
+    trim = int(len(sx_filt) * 0.1)
+    if trim > 0 and len(sx_filt) - 2 * trim > 10:
+        fit_t = data[trim:-trim, 0]
+        fit_s = sx_filt[trim:-trim]
+        slope_sx, _ = np.polyfit(fit_t, fit_s, 1)
+    else:
+        slope_sx, _ = np.polyfit(data[:, 0], sx_filt, 1)
+        
+    axs[0,3].text(0.05, 0.05, f"Eğim: {slope_sx:.2e} rad/s", transform=axs[0,3].transAxes, fontsize=10, verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
     
     # ---------------- POINCARE SECTIONS ----------------
     if len(x_pc) > 0:
@@ -181,7 +200,16 @@ def main():
     axs[1,1].grid(True, linestyle='--', alpha=0.7)
     # ---------------------------------------------------
     
-    axs[1,2].plot(t, sy, 'k-', lw=1.5)
+    axs[1,2].plot(t, sy, 'k-', lw=1.5, alpha=0.5, label='Ham S_y')
+    
+    # Savitzky-Golay ile filtrelenmiş trend
+    from scipy.signal import savgol_filter
+    window_size = (len(sy) // 4) * 2 + 1
+    if window_size >= 5:
+        sy_filt = savgol_filter(sy, window_length=window_size, polyorder=1)
+        axs[1,2].plot(t, sy_filt, 'r--', lw=2, label='Filtrelenmiş Trend')
+        axs[1,2].legend(loc='best', fontsize=8)
+        
     axs[1,2].set_title("Dikey Spin ($S_y$-t)")
     axs[1,2].set_xlabel("Zaman (μs)")
     axs[1,2].set_ylabel("$S_y$")
