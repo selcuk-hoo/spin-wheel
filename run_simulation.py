@@ -77,6 +77,8 @@ def main():
     alanlar.rfSwitch = float(config.get("rfSwitch", 0))
     alanlar.rfVoltage = float(config.get("rfVoltage", 10000.0))
     alanlar.h = float(config.get("h", 1.0))
+    alanlar.quadModA = float(config.get("quadModA", 0.0))
+    alanlar.quadModF = float(config.get("quadModF", 0.0))
     
     t0 = 0.0
     t_end = config.get("t2", 1e-5)
