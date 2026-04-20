@@ -28,5 +28,7 @@
     "B0rad": 0.0,
     "B0long": 0.0,
     "B0rad_corr": 0.0,
-    "eRatio": 1.0
+    "eRatio": 1.0,
+    "quadModA": 0.1,
+    "quadModF": 2e4
 }

@@ -39,7 +39,7 @@ void rotate_all(double* y, double theta) {
     y[7] = Sx * sin_th + Sy * cos_th;
 }
 
-// element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D
+// element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D, 4 = QUAD_F_MOD (cell-0 modulated)
 void get_electromagnetic_fields(double t, const double* r, const double* field_params, int element_type, double* E, double* B) {
     double R0       = field_params[0];
     double E0       = field_params[1];
@@ -97,10 +97,29 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
             B_quad_z += current_sK1 * (dev_quad*dev_quad - Z*Z);
         }
         
-        // fields acting transversely 
-        B[0] = B_quad_r; 
-        B[1] = 0.0;      
-        B[2] = B_quad_z; 
+        // fields acting transversely
+        B[0] = B_quad_r;
+        B[1] = 0.0;
+        B[2] = B_quad_z;
+    } else if (element_type == 4) {
+        // QUAD_F_MOD: focusing quad with time-modulated strength (cell 0 only)
+        double A_mod  = field_params[19];
+        double f_mod  = field_params[20];
+        double K1_eff = quadK1 * (1.0 + A_mod * std::cos(2.0 * M_PI * f_mod * t));
+
+        double dev_quad = X - R0;
+        double B_quad_r = K1_eff * Z;
+        double B_quad_z = K1_eff * dev_quad;
+
+        double sextSwitch = field_params[9];
+        if (sextSwitch > 0.0) {
+            B_quad_r += sextK1 * dev_quad * Z;
+            B_quad_z += sextK1 * (dev_quad*dev_quad - Z*Z);
+        }
+
+        B[0] = B_quad_r;
+        B[1] = 0.0;
+        B[2] = B_quad_z;
     }
 }
 
@@ -295,7 +314,7 @@ void run_integration(double* y_init, const double* field_params,
             double target_val = 0;
             if (elem == 0 || elem == 4) { type = 0; target_val = Phi_def; }
             else if (elem == 1 || elem == 3 || elem == 5 || elem == 7) { type = 1; target_val = driftLen; }
-            else if (elem == 2) { type = 2; target_val = quadLen; }
+            else if (elem == 2) { type = (current_fodo == 0) ? 4 : 2; target_val = quadLen; }
             else if (elem == 6) { type = 3; target_val = quadLen; }
 
             double start_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
