@@ -2,7 +2,7 @@
     "R0": 95.49,
     "direction": -1,
     "spinHorRotation": 0.0,
-    "momError": 0e-4,
+    "momError": 0.0,
     "dev0": 0.01,
     "z0": 0.01,
     "theta0_hor": 0.0,
@@ -30,5 +30,5 @@
     "B0rad_corr": 0.0,
     "eRatio": 1.0,
     "quadModA": 0.1,
-    "quadModF": 2e4
+    "quadModF": 20000.0
 }

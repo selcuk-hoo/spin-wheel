@@ -3,6 +3,9 @@ __pycache__/
 simulation_data.txt
 poincare_data.txt
 rf.txt
+cod_data.txt
+rf.png
+simulasyon_sonuclari.png
 *.expand
 *.vregs
 *.into_cfglayout
