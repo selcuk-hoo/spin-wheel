@@ -11,18 +11,37 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 def _p(*parts):
     return os.path.join(_BASE, *parts)
 
-def _compute_cod(s_mod, vals, circumference, n_bins=200):
-    """Average vals in each s bin; return (bin_centers, bin_means)."""
-    bin_edges   = np.linspace(0, circumference, n_bins + 1)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    indices     = np.digitize(s_mod, bin_edges) - 1
-    indices     = np.clip(indices, 0, n_bins - 1)
-    means = np.full(n_bins, np.nan)
-    for i in range(n_bins):
-        mask = indices == i
-        if mask.sum() > 0:
-            means[i] = np.mean(vals[mask])
-    return bin_centers, means
+def _load_cod_from_file():
+    """Read cod_data.txt written by C++ at each element entry.
+
+    Returns (s_arr, cod_x_mm, cod_y_mm) sorted by s, or (None, None, None).
+    Each of the nFODO*8 lattice positions appears once per turn; values are
+    averaged over all turns to give the closed-orbit deviation.
+    """
+    cod_path = _p("cod_data.txt")
+    if not os.path.exists(cod_path):
+        return None, None, None
+    try:
+        cd = np.loadtxt(cod_path, skiprows=1)
+        if cd.ndim == 1:
+            cd = cd.reshape(1, -1)
+        if len(cd) == 0:
+            return None, None, None
+    except (ValueError, OSError):
+        return None, None, None
+
+    s_raw  = cd[:, 0]
+    x_vals = cd[:, 1]  # mm
+    y_vals = cd[:, 2]  # mm
+
+    # s values repeat identically each turn (computed from lattice geometry).
+    # Round to suppress floating-point noise, then group.
+    s_rounded = np.round(s_raw, 4)
+    unique_s  = np.unique(s_rounded)
+    cod_x = np.array([x_vals[s_rounded == s].mean() for s in unique_s])
+    cod_y = np.array([y_vals[s_rounded == s].mean() for s in unique_s])
+    print(f"[COD: {len(unique_s)} örgü konumu, {len(s_raw)//len(unique_s)} tur ortalaması]")
+    return unique_s, cod_x, cod_y
 
 def _save_rf_plot(params):
     """Save RF phase-space diagram to rf.png (only if rf.txt exists)."""
@@ -85,15 +104,10 @@ def main():
     driftLen = params.get("driftLen", 2.0833)
 
     arc_len       = np.pi * R0 / nFODO
-    cell_len      = 2 * arc_len + 4 * driftLen + 2 * quadLen
-    circumference = nFODO * cell_len  # ~818.7 m
+    circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
 
-    # s position within the ring for each saved data point
-    s_mod = z_long % circumference
-
-    # COD: turn-averaged x and y at each s position
-    s_centers, cod_x = _compute_cod(s_mod, x, circumference)
-    _,         cod_y = _compute_cod(s_mod, y, circumference)
+    # COD from exact lattice-entry positions written by C++ integrator
+    cod_s, cod_x, cod_y = _load_cod_from_file()
 
     # Poincaré data
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
@@ -126,7 +140,8 @@ def main():
     axs[0, 0].set_ylabel("x (mm)")
     axs[0, 0].grid(True, linestyle='--', alpha=0.5)
 
-    axs[0, 1].plot(s_centers, cod_x, 'b-', lw=1.5)
+    if cod_s is not None:
+        axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5)
     axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[0, 1].set_title("Kapalı Yörünge Bozulması — COD x")
     axs[0, 1].set_xlabel("s (m)")
@@ -155,7 +170,8 @@ def main():
     axs[1, 0].set_ylabel("y (mm)")
     axs[1, 0].grid(True, linestyle='--', alpha=0.5)
 
-    axs[1, 1].plot(s_centers, cod_y, 'b-', lw=1.5)
+    if cod_s is not None:
+        axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5)
     axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[1, 1].set_title("Kapalı Yörünge Bozulması — COD y")
     axs[1, 1].set_xlabel("s (m)")

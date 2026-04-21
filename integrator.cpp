@@ -249,9 +249,25 @@ void run_integration(double* y_init, const double* field_params,
 
     int total_fodo_cells = 0;
     double global_S = 0.0;
-    // Lengths & Angles 
+    // Lengths & Angles
     double L_def = (2.0 * M_PI * R0) / (2.0 * nFODO);
-    double Phi_def = L_def / R0; 
+    double Phi_def = L_def / R0;
+
+    // Exact s-coordinate at the entry of each of the 8 elements within a FODO cell
+    double cell_len_exact = 2.0*L_def + 4.0*driftLen + 2.0*quadLen;
+    double elem_s_offset[8] = {
+        0.0,
+        L_def,
+        L_def + driftLen,
+        L_def + driftLen + quadLen,
+        L_def + 2.0*driftLen + quadLen,
+        2.0*L_def + 2.0*driftLen + quadLen,
+        2.0*L_def + 3.0*driftLen + quadLen,
+        2.0*L_def + 3.0*driftLen + 2.0*quadLen
+    };
+
+    FILE* cod_file = std::fopen("cod_data.txt", "w");
+    if (cod_file) std::fprintf(cod_file, "s_m\tx_mm\ty_mm\n");
 
     while (t < t_end) {
         int current_fodo = total_fodo_cells % nFODO;
@@ -308,6 +324,15 @@ void run_integration(double* y_init, const double* field_params,
                 poincare_out[p_saved*dim + 0] = true_x + R0;
                 poincare_out[p_saved*dim + 1] = global_S;
                 p_saved++;
+            }
+
+            // Record element-entry state for COD analysis
+            if (cod_file) {
+                double s_here = current_fodo * cell_len_exact + elem_s_offset[elem];
+                double x_dev  = y_init[0] - R0;  // radial deviation (Y≈0 at element entry)
+                double y_dev  = y_init[2];         // vertical coordinate
+                std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n",
+                             s_here, x_dev * 1000.0, y_dev * 1000.0);
             }
 
             int type = 0;
@@ -406,6 +431,8 @@ void run_integration(double* y_init, const double* field_params,
         total_fodo_cells++;
     }
     
+    if (cod_file) std::fclose(cod_file);
+
     printf("target_quad: %d, p_saved: %d\n", target_quad, p_saved);
     poincare_count[0] = p_saved;
     std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);

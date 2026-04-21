@@ -16,6 +16,8 @@ def main():
     config = load_parameters("params.json")
     if os.path.isfile("rf.txt"):
         os.remove("rf.txt")
+    if os.path.isfile("cod_data.txt"):
+        os.remove("cod_data.txt")
     
     M2 = 0.938272046 
     AMU = 1.792847356 
