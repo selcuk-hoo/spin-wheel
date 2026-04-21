@@ -11,12 +11,15 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 def _p(*parts):
     return os.path.join(_BASE, *parts)
 
-def _load_cod_from_file():
+def _load_cod_from_file(n_per_turn, circumference):
     """Read cod_data.txt written by C++ at each element entry.
 
-    Returns (s_arr, cod_x_mm, cod_y_mm) sorted by s, or (None, None, None).
-    Each of the nFODO*8 lattice positions appears once per turn; values are
-    averaged over all turns to give the closed-orbit deviation.
+    Skips the first pass (initial conditions before any integration) and
+    truncates to whole turns so every lattice position has the same number
+    of samples.  Appends a closing point at s=circumference equal to s=0
+    to make the ring boundary periodic on the plot.
+
+    Returns (s_arr, cod_x_mm, cod_y_mm), or (None, None, None).
     """
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
@@ -25,22 +28,31 @@ def _load_cod_from_file():
         cd = np.loadtxt(cod_path, skiprows=1)
         if cd.ndim == 1:
             cd = cd.reshape(1, -1)
-        if len(cd) == 0:
+        if len(cd) < 2 * n_per_turn:
             return None, None, None
     except (ValueError, OSError):
         return None, None, None
+
+    # Skip first pass (initial conditions), keep only complete turns
+    cd = cd[n_per_turn:]
+    n_complete = len(cd) // n_per_turn
+    cd = cd[: n_complete * n_per_turn]
 
     s_raw  = cd[:, 0]
     x_vals = cd[:, 1]  # mm
     y_vals = cd[:, 2]  # mm
 
-    # s values repeat identically each turn (computed from lattice geometry).
-    # Round to suppress floating-point noise, then group.
     s_rounded = np.round(s_raw, 4)
     unique_s  = np.unique(s_rounded)
     cod_x = np.array([x_vals[s_rounded == s].mean() for s in unique_s])
     cod_y = np.array([y_vals[s_rounded == s].mean() for s in unique_s])
-    print(f"[COD: {len(unique_s)} örgü konumu, {len(s_raw)//len(unique_s)} tur ortalaması]")
+
+    # Close the ring: append s=circumference equal to s=0 value
+    unique_s = np.append(unique_s, circumference)
+    cod_x    = np.append(cod_x, cod_x[0])
+    cod_y    = np.append(cod_y, cod_y[0])
+
+    print(f"[COD: {len(unique_s)-1} örgü konumu, {n_complete} tur ortalaması]")
     return unique_s, cod_x, cod_y
 
 def _save_rf_plot(params):
@@ -105,9 +117,10 @@ def main():
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
+    n_per_turn    = nFODO * 8  # lattice positions recorded per turn
 
     # COD from exact lattice-entry positions written by C++ integrator
-    cod_s, cod_x, cod_y = _load_cod_from_file()
+    cod_s, cod_x, cod_y = _load_cod_from_file(n_per_turn, circumference)
 
     # Poincaré data
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
