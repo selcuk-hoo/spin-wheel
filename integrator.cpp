@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>
+#include <cstdio>
 
 extern "C" {
 
@@ -249,9 +250,28 @@ void run_integration(double* y_init, const double* field_params,
 
     int total_fodo_cells = 0;
     double global_S = 0.0;
-    // Lengths & Angles 
+    // Lengths & Angles
     double L_def = (2.0 * M_PI * R0) / (2.0 * nFODO);
-    double Phi_def = L_def / R0; 
+    double Phi_def = L_def / R0;
+
+    // Exact s-coordinate at the entry of each of the 8 elements within a FODO cell
+    double cell_len_exact = 2.0*L_def + 4.0*driftLen + 2.0*quadLen;
+    double elem_s_offset[8] = {
+        0.0,
+        L_def,
+        L_def + driftLen,
+        L_def + driftLen + quadLen,
+        L_def + 2.0*driftLen + quadLen,
+        2.0*L_def + 2.0*driftLen + quadLen,
+        2.0*L_def + 3.0*driftLen + quadLen,
+        2.0*L_def + 3.0*driftLen + 2.0*quadLen
+    };
+
+    // COD accumulators: sum x and y at each of the nFODO*8 element entries
+    int     n_lat    = nFODO * 8;
+    double* cod_x_sum = new double[n_lat]();   // zero-initialised
+    double* cod_y_sum = new double[n_lat]();
+    int*    cod_cnt   = new int[n_lat]();
 
     while (t < t_end) {
         int current_fodo = total_fodo_cells % nFODO;
@@ -310,6 +330,14 @@ void run_integration(double* y_init, const double* field_params,
                 p_saved++;
             }
 
+            // Accumulate element-entry position for COD (skip first turn)
+            if (total_fodo_cells >= nFODO) {
+                int idx = current_fodo * 8 + elem;
+                cod_x_sum[idx] += (y_init[0] - R0) * 1000.0;  // mm
+                cod_y_sum[idx] += y_init[2] * 1000.0;
+                cod_cnt[idx]++;
+            }
+
             int type = 0;
             double target_val = 0;
             if (elem == 0 || elem == 4) { type = 0; target_val = Phi_def; }
@@ -359,7 +387,7 @@ void run_integration(double* y_init, const double* field_params,
                 global_S += vy * h_step;
 
                 if (global_step % print_interval == 0) {
-                    int pct = (int)(t * 100 / t_end);
+                    int pct = (int)std::round(t * 100.0 / t_end);
                     std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
                     std::fflush(stdout);
                 }
@@ -406,6 +434,27 @@ void run_integration(double* y_init, const double* field_params,
         total_fodo_cells++;
     }
     
+    // Write per-element averaged COD to file
+    {
+        FILE* cod_file = std::fopen("cod_data.txt", "w");
+        if (cod_file) {
+            std::fprintf(cod_file, "s_m\tx_mm\ty_mm\n");
+            for (int k = 0; k < nFODO; ++k) {
+                for (int e = 0; e < 8; ++e) {
+                    int idx = k * 8 + e;
+                    double s_here = k * cell_len_exact + elem_s_offset[e];
+                    double avg_x = (cod_cnt[idx] > 0) ? cod_x_sum[idx] / cod_cnt[idx] : 0.0;
+                    double avg_y = (cod_cnt[idx] > 0) ? cod_y_sum[idx] / cod_cnt[idx] : 0.0;
+                    std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n", s_here, avg_x, avg_y);
+                }
+            }
+            std::fclose(cod_file);
+        }
+    }
+    delete[] cod_x_sum;
+    delete[] cod_y_sum;
+    delete[] cod_cnt;
+
     printf("target_quad: %d, p_saved: %d\n", target_quad, p_saved);
     poincare_count[0] = p_saved;
     std::printf("  t = %.4f ms  |  %%100\n", t * 1000.0);
