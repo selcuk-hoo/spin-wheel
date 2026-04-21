@@ -125,7 +125,8 @@ def main():
                 yp_pc = (pc_data[:, 4] / pz_pc) * 1000
                 Qx = _estimate_tune(x_pc, xp_pc, nFODO, pq_idx)
                 Qy = _estimate_tune(y_pc, yp_pc, nFODO, pq_idx)
-                if Qx is not None:
+
+                if Qx is not None and Qy is not None:
                     print(f"[Tune: Qx={Qx:.4f}  Qy={Qy:.4f}]")
         except (ValueError, OSError):
             pass

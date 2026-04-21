@@ -35,7 +35,7 @@ def main():
     
     direction = config.get("direction", -1)
     x0 = config.get("dev0", 0.0)      
-    y0_vert = config.get("z0", 0.0)   
+    y0_vert = config.get("y0", 0.0)
     z0_long = 0.0                     
     r0_local = [x0, y0_vert, z0_long]
     
