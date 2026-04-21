@@ -11,15 +11,30 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 def _p(*parts):
     return os.path.join(_BASE, *parts)
 
-def _load_cod_from_file(n_per_turn, circumference):
-    """Read cod_data.txt written by C++ at each element entry.
 
-    Skips the first pass (initial conditions before any integration) and
-    truncates to whole turns so every lattice position has the same number
-    of samples.  Appends a closing point at s=circumference equal to s=0
-    to make the ring boundary periodic on the plot.
+def _estimate_tune(u, up, nFODO, poincare_quad_index):
+    """Estimate betatron tune (per revolution) from Poincaré phase-space data."""
+    uc  = u  - u.mean()
+    upc = up - up.mean()
+    if np.std(uc) < 1e-12 or np.std(upc) < 1e-12:
+        return None
+    dphi     = np.diff(np.unwrap(np.arctan2(upc, uc)))
+    avg_dphi = abs(np.mean(dphi))
+    # When poincare_quad_index < 0 each sample is 1/nFODO of a revolution
+    if poincare_quad_index < 0:
+        return nFODO * avg_dphi / (2.0 * np.pi)
+    return avg_dphi / (2.0 * np.pi)
 
-    Returns (s_arr, cod_x_mm, cod_y_mm), or (None, None, None).
+
+def _load_cod(n_per_turn, Qx=None, Qy=None):
+    """Read cod_data.txt and return (s, cod_x_mm, cod_y_mm) or (None,…).
+
+    Algorithm:
+    - Skip the first pass (initial conditions before any integration).
+    - Keep only complete turns so every lattice site has equal weight.
+    - If tunes are known, fit x_n = x_co + A*cos(2π*Q*n) + B*sin(2π*Q*n)
+      per site and use x_co as the COD; otherwise use the plain mean.
+    - No artificial closing point (avoids unphysical boundary jump).
     """
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
@@ -33,27 +48,44 @@ def _load_cod_from_file(n_per_turn, circumference):
     except (ValueError, OSError):
         return None, None, None
 
-    # Skip first pass (initial conditions), keep only complete turns
-    cd = cd[n_per_turn:]
-    n_complete = len(cd) // n_per_turn
-    cd = cd[: n_complete * n_per_turn]
+    # Drop first pass (initial conditions) and any trailing partial turn
+    cd          = cd[n_per_turn:]
+    n_complete  = len(cd) // n_per_turn
+    cd          = cd[: n_complete * n_per_turn]
 
     s_raw  = cd[:, 0]
-    x_vals = cd[:, 1]  # mm
-    y_vals = cd[:, 2]  # mm
+    x_vals = cd[:, 1]   # mm
+    y_vals = cd[:, 2]   # mm
 
     s_rounded = np.round(s_raw, 4)
     unique_s  = np.unique(s_rounded)
-    cod_x = np.array([x_vals[s_rounded == s].mean() for s in unique_s])
-    cod_y = np.array([y_vals[s_rounded == s].mean() for s in unique_s])
 
-    # Close the ring: append s=circumference equal to s=0 value
-    unique_s = np.append(unique_s, circumference)
-    cod_x    = np.append(cod_x, cod_x[0])
-    cod_y    = np.append(cod_y, cod_y[0])
+    n_arr = np.arange(n_complete)   # turn indices 0 … n_complete-1
 
-    print(f"[COD: {len(unique_s)-1} örgü konumu, {n_complete} tur ortalaması]")
+    def _extract_dc(vals, Q):
+        """Extract DC component at each lattice site using a sin/cos fit."""
+        result = np.empty(len(unique_s))
+        if Q is not None and n_complete >= 6:
+            M = np.column_stack([
+                np.ones(n_complete),
+                np.cos(2.0 * np.pi * Q * n_arr),
+                np.sin(2.0 * np.pi * Q * n_arr),
+            ])
+            for i, s in enumerate(unique_s):
+                v = vals[s_rounded == s]
+                result[i] = np.linalg.lstsq(M, v, rcond=None)[0][0]
+        else:
+            for i, s in enumerate(unique_s):
+                result[i] = vals[s_rounded == s].mean()
+        return result
+
+    cod_x = _extract_dc(x_vals, Qx)
+    cod_y = _extract_dc(y_vals, Qy)
+
+    method = "tune uydurması" if (Qx is not None and n_complete >= 6) else "tur ortalaması"
+    print(f"[COD: {len(unique_s)} örgü konumu, {n_complete} tur, {method}]")
     return unique_s, cod_x, cod_y
+
 
 def _save_rf_plot(params):
     """Save RF phase-space diagram to rf.png (only if rf.txt exists)."""
@@ -92,21 +124,21 @@ def _save_rf_plot(params):
     plt.close(fig_rf)
     print("RF faz diyagramı 'rf.png' olarak kaydedildi.")
 
+
 def main():
     sim_path = _p("simulation_data.txt")
     if not os.path.exists(sim_path):
         print("HATA: 'simulation_data.txt' bulunamadı.")
         return
 
-    data = np.loadtxt(sim_path, skiprows=1)
-    t_sec  = data[:, 0]
-    t      = t_sec * 1e6      # μs
-    x      = data[:, 1] * 1000  # mm
-    y      = data[:, 2] * 1000  # mm
-    z_long = data[:, 3]        # cumulative arc length (m)
-    sx     = data[:, 7]
-    sy     = data[:, 8]
-    sz     = data[:, 9]
+    data  = np.loadtxt(sim_path, skiprows=1)
+    t_sec = data[:, 0]
+    t     = t_sec * 1e6        # μs
+    x     = data[:, 1] * 1000  # mm
+    y     = data[:, 2] * 1000  # mm
+    sx    = data[:, 7]
+    sy    = data[:, 8]
+    sz    = data[:, 9]
 
     with open(_p("params.json"), "r") as f:
         params = json.load(f)
@@ -114,35 +146,41 @@ def main():
     nFODO    = params.get("nFODO", 24)
     quadLen  = params.get("quadLen", 0.4)
     driftLen = params.get("driftLen", 2.0833)
+    pq_idx   = params.get("poincare_quad_index", -1)
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
-    n_per_turn    = nFODO * 8  # lattice positions recorded per turn
+    n_per_turn    = nFODO * 8  # element entries recorded per revolution
 
-    # COD from exact lattice-entry positions written by C++ integrator
-    cod_s, cod_x, cod_y = _load_cod_from_file(n_per_turn, circumference)
-
-    # Poincaré data
+    # ---- Poincaré data & tune estimation ----
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
+    Qx = Qy = None
     if os.path.exists(_p("poincare_data.txt")):
         try:
             pc_data = np.loadtxt(_p("poincare_data.txt"), skiprows=1)
             if pc_data.ndim == 1:
                 pc_data = pc_data.reshape(1, -1)
-            if len(pc_data) > 0:
+            if len(pc_data) > 4:
                 print(f"[{len(pc_data)} adet Poincaré noktası çiziliyor]")
                 pz_pc = pc_data[:, 5]
                 x_pc  = pc_data[:, 0] * 1000
                 y_pc  = pc_data[:, 1] * 1000
                 xp_pc = (pc_data[:, 3] / pz_pc) * 1000
                 yp_pc = (pc_data[:, 4] / pz_pc) * 1000
+                Qx = _estimate_tune(x_pc, xp_pc, nFODO, pq_idx)
+                Qy = _estimate_tune(y_pc, yp_pc, nFODO, pq_idx)
+                if Qx is not None:
+                    print(f"[Tune: Qx={Qx:.4f}  Qy={Qy:.4f}]")
         except (ValueError, OSError):
             pass
 
-    # RF plot → separate file
+    # ---- COD extraction ----
+    cod_s, cod_x, cod_y = _load_cod(n_per_turn, Qx=Qx, Qy=Qy)
+
+    # ---- RF plot → separate file ----
     _save_rf_plot(params)
 
-    # ---- Main 3×3 figure ----
+    # ======== Main 3×3 figure ========
     fig, axs = plt.subplots(3, 3, figsize=(16, 12))
     fig.suptitle('6D Spin-Wheel Simülasyon Sonuçları', fontsize=16, fontweight='bold')
 
@@ -154,11 +192,13 @@ def main():
     axs[0, 0].grid(True, linestyle='--', alpha=0.5)
 
     if cod_s is not None:
-        axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5)
+        lbl = f"Qx={Qx:.3f}" if Qx is not None else "tur ort."
+        axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5, label=lbl)
+        axs[0, 1].legend(fontsize=8)
     axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
-    axs[0, 1].set_title("Kapalı Yörünge Bozulması — COD x")
+    axs[0, 1].set_title("Kapalı Yörünge — COD x")
     axs[0, 1].set_xlabel("s (m)")
-    axs[0, 1].set_ylabel("⟨x⟩ (mm)")
+    axs[0, 1].set_ylabel("$x_{CO}$ (mm)")
     axs[0, 1].set_xlim(0, circumference)
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
@@ -184,11 +224,13 @@ def main():
     axs[1, 0].grid(True, linestyle='--', alpha=0.5)
 
     if cod_s is not None:
-        axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5)
+        lbl = f"Qy={Qy:.3f}" if Qy is not None else "tur ort."
+        axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5, label=lbl)
+        axs[1, 1].legend(fontsize=8)
     axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
-    axs[1, 1].set_title("Kapalı Yörünge Bozulması — COD y")
+    axs[1, 1].set_title("Kapalı Yörünge — COD y")
     axs[1, 1].set_xlabel("s (m)")
-    axs[1, 1].set_ylabel("⟨y⟩ (mm)")
+    axs[1, 1].set_ylabel("$y_{CO}$ (mm)")
     axs[1, 1].set_xlim(0, circumference)
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
@@ -214,9 +256,9 @@ def main():
     def _spin_panel(ax, signal, ylabel):
         ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
         if sg_win >= 5:
-            filt = savgol_filter(signal, window_length=sg_win, polyorder=1)
+            filt  = savgol_filter(signal, window_length=sg_win, polyorder=1)
             ax.plot(t, filt, 'r-', lw=1.5, label='Filtrelenmiş')
-            trim = int(len(filt) * 0.1)
+            trim  = int(len(filt) * 0.1)
             if trim > 0 and len(filt) - 2 * trim > 10:
                 ft = data[trim:-trim, 0]; fs = filt[trim:-trim]
             else:
@@ -245,6 +287,7 @@ def main():
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)
     print("Grafik 'simulasyon_sonuclari.png' olarak kaydedildi!")
+
 
 if __name__ == "__main__":
     main()
