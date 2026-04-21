@@ -4,7 +4,7 @@
     "spinHorRotation": 0.0,
     "momError": 0e-4,
     "dev0": 0.01,
-    "z0": 0.01,
+    "y0": 0.01,
     "theta0_hor": 0.0,
     "theta0_ver": 0.0,
     "nFODO": 24,

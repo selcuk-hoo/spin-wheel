@@ -100,7 +100,7 @@ def main():
     print("Sextupole (K2) Grid Search & L-BFGS-B Optimizasyonu")
     print("Hedef: Radyal spin salınım eğimini (S_x - t) minimize etmek.")
     print("Aralık: [-0.015, 0.015]")
-    print("Simülasyon: 100 mikrosaniye, z0 = 1.0 cm")
+    print("Simülasyon: 100 mikrosaniye, y0 = 1.0 cm")
     print("==========================================================\n")
     
     start_time = time.time()
