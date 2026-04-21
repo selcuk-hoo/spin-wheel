@@ -267,8 +267,11 @@ void run_integration(double* y_init, const double* field_params,
         2.0*L_def + 3.0*driftLen + 2.0*quadLen
     };
 
-    FILE* cod_file = std::fopen("cod_data.txt", "w");
-    if (cod_file) std::fprintf(cod_file, "s_m\tx_mm\ty_mm\n");
+    // COD accumulators: sum x and y at each of the nFODO*8 element entries
+    int     n_lat    = nFODO * 8;
+    double* cod_x_sum = new double[n_lat]();   // zero-initialised
+    double* cod_y_sum = new double[n_lat]();
+    int*    cod_cnt   = new int[n_lat]();
 
     while (t < t_end) {
         int current_fodo = total_fodo_cells % nFODO;
@@ -327,13 +330,12 @@ void run_integration(double* y_init, const double* field_params,
                 p_saved++;
             }
 
-            // Record element-entry state for COD analysis
-            if (cod_file) {
-                double s_here = current_fodo * cell_len_exact + elem_s_offset[elem];
-                double x_dev  = y_init[0] - R0;  // radial deviation (Y≈0 at element entry)
-                double y_dev  = y_init[2];         // vertical coordinate
-                std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n",
-                             s_here, x_dev * 1000.0, y_dev * 1000.0);
+            // Accumulate element-entry position for COD (skip first turn)
+            if (total_fodo_cells >= nFODO) {
+                int idx = current_fodo * 8 + elem;
+                cod_x_sum[idx] += (y_init[0] - R0) * 1000.0;  // mm
+                cod_y_sum[idx] += y_init[2] * 1000.0;
+                cod_cnt[idx]++;
             }
 
             int type = 0;
@@ -432,7 +434,26 @@ void run_integration(double* y_init, const double* field_params,
         total_fodo_cells++;
     }
     
-    if (cod_file) std::fclose(cod_file);
+    // Write per-element averaged COD to file
+    {
+        FILE* cod_file = std::fopen("cod_data.txt", "w");
+        if (cod_file) {
+            std::fprintf(cod_file, "s_m\tx_mm\ty_mm\n");
+            for (int k = 0; k < nFODO; ++k) {
+                for (int e = 0; e < 8; ++e) {
+                    int idx = k * 8 + e;
+                    double s_here = k * cell_len_exact + elem_s_offset[e];
+                    double avg_x = (cod_cnt[idx] > 0) ? cod_x_sum[idx] / cod_cnt[idx] : 0.0;
+                    double avg_y = (cod_cnt[idx] > 0) ? cod_y_sum[idx] / cod_cnt[idx] : 0.0;
+                    std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n", s_here, avg_x, avg_y);
+                }
+            }
+            std::fclose(cod_file);
+        }
+    }
+    delete[] cod_x_sum;
+    delete[] cod_y_sum;
+    delete[] cod_cnt;
 
     printf("target_quad: %d, p_saved: %d\n", target_quad, p_saved);
     poincare_count[0] = p_saved;

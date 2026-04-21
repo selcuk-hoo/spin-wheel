@@ -26,16 +26,8 @@ def _estimate_tune(u, up, nFODO, poincare_quad_index):
     return avg_dphi / (2.0 * np.pi)
 
 
-def _load_cod(n_per_turn, Qx=None, Qy=None):
-    """Read cod_data.txt and return (s, cod_x_mm, cod_y_mm) or (None,…).
-
-    Algorithm:
-    - Skip the first pass (initial conditions before any integration).
-    - Keep only complete turns so every lattice site has equal weight.
-    - If tunes are known, fit x_n = x_co + A*cos(2π*Q*n) + B*sin(2π*Q*n)
-      per site and use x_co as the COD; otherwise use the plain mean.
-    - No artificial closing point (avoids unphysical boundary jump).
-    """
+def _load_cod(n_per_turn):
+    """Read cod_data.txt (192 rows, one per lattice element) and return (s, x_mm, y_mm)."""
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -43,48 +35,12 @@ def _load_cod(n_per_turn, Qx=None, Qy=None):
         cd = np.loadtxt(cod_path, skiprows=1)
         if cd.ndim == 1:
             cd = cd.reshape(1, -1)
-        if len(cd) < 2 * n_per_turn:
+        if len(cd) == 0:
             return None, None, None
     except (ValueError, OSError):
         return None, None, None
-
-    # Drop first pass (initial conditions) and any trailing partial turn
-    cd          = cd[n_per_turn:]
-    n_complete  = len(cd) // n_per_turn
-    cd          = cd[: n_complete * n_per_turn]
-
-    s_raw  = cd[:, 0]
-    x_vals = cd[:, 1]   # mm
-    y_vals = cd[:, 2]   # mm
-
-    s_rounded = np.round(s_raw, 4)
-    unique_s  = np.unique(s_rounded)
-
-    n_arr = np.arange(n_complete)   # turn indices 0 … n_complete-1
-
-    def _extract_dc(vals, Q):
-        """Extract DC component at each lattice site using a sin/cos fit."""
-        result = np.empty(len(unique_s))
-        if Q is not None and n_complete >= 6:
-            M = np.column_stack([
-                np.ones(n_complete),
-                np.cos(2.0 * np.pi * Q * n_arr),
-                np.sin(2.0 * np.pi * Q * n_arr),
-            ])
-            for i, s in enumerate(unique_s):
-                v = vals[s_rounded == s]
-                result[i] = np.linalg.lstsq(M, v, rcond=None)[0][0]
-        else:
-            for i, s in enumerate(unique_s):
-                result[i] = vals[s_rounded == s].mean()
-        return result
-
-    cod_x = _extract_dc(x_vals, Qx)
-    cod_y = _extract_dc(y_vals, Qy)
-
-    method = "tune uydurması" if (Qx is not None and n_complete >= 6) else "tur ortalaması"
-    print(f"[COD: {len(unique_s)} örgü konumu, {n_complete} tur, {method}]")
-    return unique_s, cod_x, cod_y
+    print(f"[COD: {len(cd)} örgü elemanı okundu]")
+    return cd[:, 0], cd[:, 1], cd[:, 2]
 
 
 def _save_rf_plot(params):
@@ -175,7 +131,7 @@ def main():
             pass
 
     # ---- COD extraction ----
-    cod_s, cod_x, cod_y = _load_cod(n_per_turn, Qx=Qx, Qy=Qy)
+    cod_s, cod_x, cod_y = _load_cod(n_per_turn)
 
     # ---- RF plot → separate file ----
     _save_rf_plot(params)
