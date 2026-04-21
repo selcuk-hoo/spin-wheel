@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>
+#include <cstdio>
 
 extern "C" {
 
@@ -384,7 +385,7 @@ void run_integration(double* y_init, const double* field_params,
                 global_S += vy * h_step;
 
                 if (global_step % print_interval == 0) {
-                    int pct = (int)(t * 100 / t_end);
+                    int pct = (int)std::round(t * 100.0 / t_end);
                     std::printf("  t = %.4f ms  |  %%%d\n", t*1000.0, pct);
                     std::fflush(stdout);
                 }
