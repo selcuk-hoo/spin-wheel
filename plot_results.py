@@ -5,12 +5,61 @@ import matplotlib.pyplot as plt
 import json
 import os
 from scipy.signal import savgol_filter
-from scipy.ndimage import uniform_filter1d
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 
 def _p(*parts):
     return os.path.join(_BASE, *parts)
+
+def _compute_cod(s_mod, vals, circumference, n_bins=200):
+    """Average vals in each s bin; return (bin_centers, bin_means)."""
+    bin_edges   = np.linspace(0, circumference, n_bins + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    indices     = np.digitize(s_mod, bin_edges) - 1
+    indices     = np.clip(indices, 0, n_bins - 1)
+    means = np.full(n_bins, np.nan)
+    for i in range(n_bins):
+        mask = indices == i
+        if mask.sum() > 0:
+            means[i] = np.mean(vals[mask])
+    return bin_centers, means
+
+def _save_rf_plot(params):
+    """Save RF phase-space diagram to rf.png (only if rf.txt exists)."""
+    rf_path = _p("rf.txt")
+    if not os.path.exists(rf_path):
+        return
+    try:
+        rf_data = np.loadtxt(rf_path, skiprows=1)
+        if rf_data.ndim == 1:
+            rf_data = rf_data.reshape(1, -1)
+        if rf_data.shape[0] == 0:
+            return
+    except (ValueError, OSError):
+        return
+
+    fig_rf, ax_rf = plt.subplots(figsize=(6, 5))
+    nc = rf_data.shape[1]
+    if nc >= 7:
+        psi_wrap  = rf_data[:, 4]
+        dp_over_p = rf_data[:, 6]
+        psi_deg   = (psi_wrap * 180.0 / np.pi + 180) % 360 - 180
+        ax_rf.plot(psi_deg, dp_over_p * 1e3, "ko", markersize=4)
+        ax_rf.set_xlabel("Ψ (sarılı, derece)")
+        ax_rf.set_ylabel("dp/p ($10^{-3}$)")
+    elif nc >= 3:
+        phi_rf    = rf_data[:, 1]
+        dp_over_p = rf_data[:, 2]
+        phi_deg   = (phi_rf * 180.0 / np.pi + 180) % 360 - 180
+        ax_rf.plot(phi_deg, dp_over_p * 1e3, "ko", markersize=4)
+        ax_rf.set_xlabel("Φ_RF (derece)")
+        ax_rf.set_ylabel("dp/p ($10^{-3}$)")
+    ax_rf.set_title("RF Faz Diyagramı (Ψ vs dp/p)")
+    ax_rf.grid(True, linestyle='--', alpha=0.6)
+    fig_rf.tight_layout()
+    fig_rf.savefig(_p("rf.png"), dpi=150)
+    plt.close(fig_rf)
+    print("RF faz diyagramı 'rf.png' olarak kaydedildi.")
 
 def main():
     sim_path = _p("simulation_data.txt")
@@ -19,44 +68,32 @@ def main():
         return
 
     data = np.loadtxt(sim_path, skiprows=1)
-    t_sec = data[:, 0]
-    t     = t_sec * 1e6   # μs
-    x     = data[:, 1] * 1000  # mm
-    y     = data[:, 2] * 1000  # mm
-    sx    = data[:, 7]
-    sy    = data[:, 8]
-    sz    = data[:, 9]
+    t_sec  = data[:, 0]
+    t      = t_sec * 1e6      # μs
+    x      = data[:, 1] * 1000  # mm
+    y      = data[:, 2] * 1000  # mm
+    z_long = data[:, 3]        # cumulative arc length (m)
+    sx     = data[:, 7]
+    sy     = data[:, 8]
+    sz     = data[:, 9]
 
     with open(_p("params.json"), "r") as f:
         params = json.load(f)
-    R0        = params.get("R0", 95.49)
-    nFODO     = params.get("nFODO", 24)
-    quadLen   = params.get("quadLen", 0.4)
-    driftLen  = params.get("driftLen", 2.0833)
-    dt_sim    = params.get("dt", 1e-11)
-    t_end     = params.get("t2", 0.001)
-    n_ret     = params.get("return_steps", 10000)
+    R0       = params.get("R0", 95.49)
+    nFODO    = params.get("nFODO", 24)
+    quadLen  = params.get("quadLen", 0.4)
+    driftLen = params.get("driftLen", 2.0833)
 
-    # Ring circumference and revolution period
-    arc_len      = np.pi * R0 / nFODO
-    cell_len     = 2 * arc_len + 4 * driftLen + 2 * quadLen
-    circumference = nFODO * cell_len
-    M2  = 0.938272046
-    AMU = 1.792847356
-    p_m = M2 / np.sqrt(AMU)
-    E_t = np.sqrt(p_m**2 + M2**2)
-    beta0 = p_m / E_t
-    T_rev = circumference / (beta0 * 299792458.0)
+    arc_len       = np.pi * R0 / nFODO
+    cell_len      = 2 * arc_len + 4 * driftLen + 2 * quadLen
+    circumference = nFODO * cell_len  # ~818.7 m
 
-    # Effective sample period and COD window (≈ 1 revolution)
-    total_steps  = int(t_end / dt_sim)
-    save_interval = max(1, int(total_steps / n_ret))
-    dt_eff = save_interval * dt_sim
-    cod_window = max(3, int(round(T_rev / dt_eff)))
-    print(f"[COD penceresi: {cod_window} örnek ≈ 1 devir ({T_rev*1e6:.2f} μs)]")
+    # s position within the ring for each saved data point
+    s_mod = z_long % circumference
 
-    cod_x = uniform_filter1d(x, size=cod_window)
-    cod_y = uniform_filter1d(y, size=cod_window)
+    # COD: turn-averaged x and y at each s position
+    s_centers, cod_x = _compute_cod(s_mod, x, circumference)
+    _,         cod_y = _compute_cod(s_mod, y, circumference)
 
     # Poincaré data
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
@@ -67,14 +104,18 @@ def main():
                 pc_data = pc_data.reshape(1, -1)
             if len(pc_data) > 0:
                 print(f"[{len(pc_data)} adet Poincaré noktası çiziliyor]")
+                pz_pc = pc_data[:, 5]
                 x_pc  = pc_data[:, 0] * 1000
                 y_pc  = pc_data[:, 1] * 1000
-                pz_pc = pc_data[:, 5]
                 xp_pc = (pc_data[:, 3] / pz_pc) * 1000
                 yp_pc = (pc_data[:, 4] / pz_pc) * 1000
         except (ValueError, OSError):
             pass
 
+    # RF plot → separate file
+    _save_rf_plot(params)
+
+    # ---- Main 3×3 figure ----
     fig, axs = plt.subplots(3, 3, figsize=(16, 12))
     fig.suptitle('6D Spin-Wheel Simülasyon Sonuçları', fontsize=16, fontweight='bold')
 
@@ -85,10 +126,12 @@ def main():
     axs[0, 0].set_ylabel("x (mm)")
     axs[0, 0].grid(True, linestyle='--', alpha=0.5)
 
-    axs[0, 1].plot(t, cod_x, 'b-', lw=1.5)
-    axs[0, 1].set_title(f"Kapalı Yörünge Boz. — COD x  (w≈{cod_window})")
-    axs[0, 1].set_xlabel("Zaman (μs)")
+    axs[0, 1].plot(s_centers, cod_x, 'b-', lw=1.5)
+    axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
+    axs[0, 1].set_title("Kapalı Yörünge Bozulması — COD x")
+    axs[0, 1].set_xlabel("s (m)")
     axs[0, 1].set_ylabel("⟨x⟩ (mm)")
+    axs[0, 1].set_xlim(0, circumference)
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
     if len(x_pc) > 1:
@@ -112,10 +155,12 @@ def main():
     axs[1, 0].set_ylabel("y (mm)")
     axs[1, 0].grid(True, linestyle='--', alpha=0.5)
 
-    axs[1, 1].plot(t, cod_y, 'b-', lw=1.5)
-    axs[1, 1].set_title(f"Kapalı Yörünge Boz. — COD y  (w≈{cod_window})")
-    axs[1, 1].set_xlabel("Zaman (μs)")
+    axs[1, 1].plot(s_centers, cod_y, 'b-', lw=1.5)
+    axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
+    axs[1, 1].set_title("Kapalı Yörünge Bozulması — COD y")
+    axs[1, 1].set_xlabel("s (m)")
     axs[1, 1].set_ylabel("⟨y⟩ (mm)")
+    axs[1, 1].set_xlim(0, circumference)
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
     if len(y_pc) > 1:
@@ -137,8 +182,8 @@ def main():
     if sg_win < 5:
         sg_win = 5
 
-    def _spin_panel(ax, signal, label, color='k'):
-        ax.plot(t, signal, color=color, lw=0.8, alpha=0.4, label='Ham')
+    def _spin_panel(ax, signal, ylabel):
+        ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
         if sg_win >= 5:
             filt = savgol_filter(signal, window_length=sg_win, polyorder=1)
             ax.plot(t, filt, 'r-', lw=1.5, label='Filtrelenmiş')
@@ -152,18 +197,15 @@ def main():
                     transform=ax.transAxes, fontsize=9, va='bottom',
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
             ax.legend(fontsize=8, loc='upper right')
+        ax.set_xlabel("Zaman (μs)")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, linestyle='--', alpha=0.5)
 
-    _spin_panel(axs[2, 0], sx, 'S_x')
+    _spin_panel(axs[2, 0], sx, "$S_x$")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
-    axs[2, 0].set_xlabel("Zaman (μs)")
-    axs[2, 0].set_ylabel("$S_x$")
-    axs[2, 0].grid(True, linestyle='--', alpha=0.5)
 
-    _spin_panel(axs[2, 1], sy, 'S_y')
+    _spin_panel(axs[2, 1], sy, "$S_y$")
     axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
-    axs[2, 1].set_xlabel("Zaman (μs)")
-    axs[2, 1].set_ylabel("$S_y$")
-    axs[2, 1].grid(True, linestyle='--', alpha=0.5)
 
     axs[2, 2].plot(t, sz, 'k-', lw=0.8)
     axs[2, 2].set_title("Longitudinal Spin ($S_z$-t)")
@@ -172,9 +214,8 @@ def main():
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
-    out_path = _p("simulasyon_sonuclari.png")
-    plt.savefig(out_path, dpi=150)
-    print(f"Grafik '{out_path}' olarak kaydedildi!")
+    plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)
+    print("Grafik 'simulasyon_sonuclari.png' olarak kaydedildi!")
 
 if __name__ == "__main__":
     main()
