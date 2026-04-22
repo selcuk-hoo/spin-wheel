@@ -27,7 +27,7 @@ def _estimate_tune(u, up, nFODO, poincare_quad_index):
 
 
 def _load_cod(n_per_turn):
-    """Read cod_data.txt (192 rows, one per lattice element) and return (s, x_mm, y_mm)."""
+    """Read cod_data.txt and return COD as (s, x_um, y_um)."""
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -40,7 +40,8 @@ def _load_cod(n_per_turn):
     except (ValueError, OSError):
         return None, None, None
     print(f"[COD: {len(cd)} örgü elemanı okundu]")
-    return cd[:, 0], cd[:, 1], cd[:, 2]
+    # cod_data.txt stores x/y in mm; plot COD in micrometers.
+    return cd[:, 0], cd[:, 1] * 1000.0, cd[:, 2] * 1000.0
 
 
 def _save_rf_plot(params):
@@ -137,9 +138,22 @@ def main():
     # ---- RF plot → separate file ----
     _save_rf_plot(params)
 
-    # ======== Main 3×3 figure ========
-    fig, axs = plt.subplots(3, 3, figsize=(16, 12))
+    # ======== Main 3×4 figure ========
+    fig, axs = plt.subplots(3, 4, figsize=(20, 12))
     fig.suptitle('6D Spin-Wheel Simülasyon Sonuçları', fontsize=16, fontweight='bold')
+
+    def _plot_fft(ax, t_seconds, signal_mm, title):
+        dt = np.mean(np.diff(t_seconds))
+        freq = np.fft.rfftfreq(len(signal_mm), d=dt)
+        amp = np.abs(np.fft.rfft(signal_mm - np.mean(signal_mm))) / len(signal_mm)
+        mask = (freq > 0.0) & (amp > 0.0)
+        ax.plot(freq[mask], amp[mask], 'k-', lw=1.0)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_title(title)
+        ax.set_xlabel("Frekans (Hz)")
+        ax.set_ylabel("Genlik (mm)")
+        ax.grid(True, linestyle='--', alpha=0.5)
 
     # ---- Row 1: radial x ----
     axs[0, 0].plot(t, x, 'k-', lw=0.8)
@@ -155,7 +169,7 @@ def main():
     axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[0, 1].set_title("Kapalı Yörünge — COD x")
     axs[0, 1].set_xlabel("s (m)")
-    axs[0, 1].set_ylabel("$x_{CO}$ (mm)")
+    axs[0, 1].set_ylabel("$x_{CO}$ (μm)")
     axs[0, 1].set_xlim(0, circumference)
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
@@ -172,6 +186,7 @@ def main():
     axs[0, 2].set_xlabel("x (mm)")
     axs[0, 2].set_ylabel("x' (mrad)")
     axs[0, 2].grid(True, linestyle='--', alpha=0.5)
+    _plot_fft(axs[0, 3], t_sec, x, "x(t) FFT")
 
     # ---- Row 2: vertical y ----
     axs[1, 0].plot(t, y, 'k-', lw=0.8)
@@ -187,7 +202,7 @@ def main():
     axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[1, 1].set_title("Kapalı Yörünge — COD y")
     axs[1, 1].set_xlabel("s (m)")
-    axs[1, 1].set_ylabel("$y_{CO}$ (mm)")
+    axs[1, 1].set_ylabel("$y_{CO}$ (μm)")
     axs[1, 1].set_xlim(0, circumference)
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
@@ -204,6 +219,7 @@ def main():
     axs[1, 2].set_xlabel("y (mm)")
     axs[1, 2].set_ylabel("y' (mrad)")
     axs[1, 2].grid(True, linestyle='--', alpha=0.5)
+    _plot_fft(axs[1, 3], t_sec, y, "y(t) FFT")
 
     # ---- Row 3: spin ----
     sg_win = (len(sx) // 4) * 2 + 1
@@ -240,6 +256,7 @@ def main():
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
+    axs[2, 3].axis('off')
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)

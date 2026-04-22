@@ -82,6 +82,9 @@ void rotate_all(double* y, double theta) {
 //   [9] sextSwitch   1 = sextupole on
 //   [19] quadModA    modulation amplitude (type 4 only)
 //   [20] quadModF    modulation frequency [Hz] (type 4 only)
+//   [21] nFODO_off   apply quad offset at elem=2 of this cell (0-based), <0 disables
+//   [22] B0hor       equivalent horizontal field [T] for offset formula y_off = B0hor / K1
+//   [23] quadYOffset per-element vertical quad centre shift [m] (internal runtime override)
 //
 // element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D, 4 = QUAD_F_MOD
 void get_electromagnetic_fields(double t, const double* r, const double* field_params, int element_type, double* E, double* B) {
@@ -93,6 +96,7 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double B0long   = field_params[5];
     double quadK1   = field_params[6];
     double sextK1   = field_params[7];
+    double quadYOffset = field_params[23];
     
     double X = r[0], Y = r[1], Z = r[2];
     double R = std::sqrt(X*X + Y*Y);
@@ -143,7 +147,8 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         double current_K1 = (element_type == 2) ? quadK1 : -quadK1;
         double dev_quad = X - R0;
 
-        double B_quad_r = current_K1 * Z;
+        double y_rel = Z - quadYOffset;
+        double B_quad_r = current_K1 * y_rel;
         double B_quad_z = current_K1 * dev_quad;
 
         // Optional sextupole overlay.  Maxwell's ∇·B = 0 requires:
@@ -153,8 +158,8 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         double sextSwitch = field_params[9];
         if (sextSwitch > 0.0) {
             double current_sK1 = (element_type == 2) ? sextK1 : -sextK1;
-            B_quad_r += current_sK1 * dev_quad * Z;
-            B_quad_z += 0.5 * current_sK1 * (dev_quad*dev_quad - Z*Z);
+            B_quad_r += current_sK1 * dev_quad * y_rel;
+            B_quad_z += 0.5 * current_sK1 * (dev_quad*dev_quad - y_rel*y_rel);
         }
 
         B[0] = B_quad_r;
@@ -169,21 +174,21 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         double K1_eff = quadK1 * (1.0 + A_mod * std::cos(2.0 * M_PI * f_mod * t));
 
         double dev_quad = X - R0;
-        double B_quad_r = K1_eff * Z;
+        double y_rel = Z - quadYOffset;
+        double B_quad_r = K1_eff * y_rel;
         double B_quad_z = K1_eff * dev_quad;
 
         // Same Maxwell-correct sextupole overlay as in type 2/3
         double sextSwitch = field_params[9];
         if (sextSwitch > 0.0) {
-            B_quad_r += sextK1 * dev_quad * Z;
-            B_quad_z += 0.5 * sextK1 * (dev_quad*dev_quad - Z*Z);
+            B_quad_r += sextK1 * dev_quad * y_rel;
+            B_quad_z += 0.5 * sextK1 * (dev_quad*dev_quad - y_rel*y_rel);
         }
 
         B[0] = B_quad_r;
         B[1] = 0.0;
         B[2] = B_quad_z;
     }
-    // element_type == 1 (DRIFT): E = B = 0, nothing to do.
 }
 
 // Equations of motion — right-hand side of the ODE system.
@@ -344,6 +349,8 @@ void run_integration(double* y_init, const double* field_params,
     double quadLen  = field_params[13];
     double dir      = field_params[11];
     double driftLen = field_params[18];
+    int    nFODO_off = (int)std::round(field_params[21]);
+    double B0hor = field_params[22];
 
     int    target_quad  = (int)std::round(field_params[14]);
 
@@ -402,7 +409,11 @@ void run_integration(double* y_init, const double* field_params,
     while (t < t_end) {
         int current_fodo = total_fodo_cells % nFODO;  // cell index within current revolution
 
-        for (int elem = 0; elem < 8; ++elem) {
+        // Start each revolution from the first drift element (elem=1),
+        // then wrap around: 1,2,3,4,5,6,7,0.
+        const int start_elem = 1;
+        for (int elem_iter = 0; elem_iter < 8; ++elem_iter) {
+            int elem = (start_elem + elem_iter) % 8;
             if (t >= t_end) break;
             
             // ---- RF thin kick (once per revolution at cell-0 arc entry) ----
@@ -460,7 +471,14 @@ void run_integration(double* y_init, const double* field_params,
             // ---- COD: sample element-entry position, skip first revolution ----
             if (total_fodo_cells >= nFODO) {
                 int idx = current_fodo * 8 + elem;
-                cod_x_sum[idx] += (y_init[0] - R0) * 1000.0;  // mm
+                double cod_x = 0.0;
+                if (elem == 0 || elem == 4) {
+                    double R = std::sqrt(y_init[0]*y_init[0] + y_init[1]*y_init[1]);
+                    cod_x = R - R0;
+                } else {
+                    cod_x = y_init[0] - R0;
+                }
+                cod_x_sum[idx] += cod_x * 1000.0;  // mm
                 cod_y_sum[idx] += y_init[2] * 1000.0;
                 cod_cnt[idx]++;
             }
@@ -471,6 +489,14 @@ void run_integration(double* y_init, const double* field_params,
             else if (elem == 1 || elem == 3 || elem == 5 || elem == 7) { type = 1; target_val = driftLen; }
             else if (elem == 2) { type = (current_fodo == 0) ? 4 : 2; target_val = quadLen; }
             else if (elem == 6) { type = 3; target_val = quadLen; }
+
+            double field_params_local[24];
+            for (int fp = 0; fp < 24; ++fp) field_params_local[fp] = field_params[fp];
+            field_params_local[23] = 0.0;
+            bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);
+            if (is_target_first_quad && std::abs(field_params[6]) > 1e-20) {
+                field_params_local[23] = B0hor / field_params[6];
+            }
 
             double start_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
             double accumulated = 0.0;
@@ -508,7 +534,7 @@ void run_integration(double* y_init, const double* field_params,
                 
                 double old_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
                 
-                gl4_step_element(t, y_init, field_params, type, h_step, dim);
+                gl4_step_element(t, y_init, field_params_local, type, h_step, dim);
                 t += h_step;
                 global_step++;
                 global_S += vy * h_step;

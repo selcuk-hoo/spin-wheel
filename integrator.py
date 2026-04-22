@@ -53,6 +53,9 @@ class FieldParams:
         self.h = 1.0
         self.quadModA = 0.0
         self.quadModF = 0.0
+        self.nFODO_off = -1.0
+        self.B0hor = 0.0
+        self.quadYOffset = 0.0
 
     def to_c_array(self):
         params = [
@@ -64,7 +67,8 @@ class FieldParams:
             self.nFODO, self.quadLen,
             self.poincare_quad_index,
             self.rfSwitch, self.rfVoltage, self.h, self.driftLen,
-            self.quadModA, self.quadModF
+            self.quadModA, self.quadModF, self.nFODO_off,
+            self.B0hor, self.quadYOffset
         ]
         return (ctypes.c_double * len(params))(*params)
 

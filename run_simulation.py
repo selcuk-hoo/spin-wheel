@@ -36,7 +36,7 @@ def main():
     direction = config.get("direction", -1)
     x0 = config.get("dev0", 0.0)      
     y0_vert = config.get("y0", 0.0)
-    z0_long = 0.0                     
+    z0_long = 0.0
     r0_local = [x0, y0_vert, z0_long]
     
     theta0_hor = config.get("theta0_hor", 0.0)
@@ -81,6 +81,8 @@ def main():
     alanlar.h = float(config.get("h", 1.0))
     alanlar.quadModA = float(config.get("quadModA", 0.0))
     alanlar.quadModF = float(config.get("quadModF", 0.0))
+    alanlar.nFODO_off = float(config.get("nFODO_off", -1))
+    alanlar.B0hor = float(config.get("B0hor", 0.0))
     
     t0 = 0.0
     t_end = config.get("t2", 1e-5)
