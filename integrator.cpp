@@ -406,6 +406,13 @@ void run_integration(double* y_init, const double* field_params,
     double* cod_y_sum = new double[n_lat]();
     int*    cod_cnt   = new int[n_lat]();
 
+    // Staging buffer: filled during each revolution, committed only when the
+    // revolution completes.  Partial last revolution is silently discarded,
+    // ensuring cod_cnt[i] is identical for all lattice positions.
+    double* stage_x = new double[n_lat]();
+    double* stage_y = new double[n_lat]();
+    bool past_first_rev = false;
+
     while (t < t_end) {
         int current_fodo = total_fodo_cells % nFODO;  // cell index within current revolution
 
@@ -415,7 +422,7 @@ void run_integration(double* y_init, const double* field_params,
         for (int elem_iter = 0; elem_iter < 8; ++elem_iter) {
             int elem = (start_elem + elem_iter) % 8;
             if (t >= t_end) break;
-            
+
             // ---- RF thin kick (once per revolution at cell-0 arc entry) ----
             if (current_fodo == 0 && elem == 0) {
                 double phi_rf = omega_rf * t;
@@ -427,19 +434,19 @@ void run_integration(double* y_init, const double* field_params,
                     double E_J  = std::sqrt(p_sq*C_LIGHT*C_LIGHT + M_P*M_P*C_LIGHT*C_LIGHT);
                     double beta = std::sqrt(p_sq) * C_LIGHT / E_J;
                     double dp   = Q_E * V_rf * std::sin(phi_rf) / (beta * C_LIGHT);
-    
-                    y_init[4] += dp * dir; 
+
+                    y_init[4] += dp * dir;
                 }
 
                 if (rf_out.is_open()) {
-                    double p_tang = y_init[4]; 
+                    double p_tang = y_init[4];
                     if (!have_ref) { p_tang_ref = p_tang; have_ref = true; }
                     double dp_over_p = (std::abs(p_tang_ref) > 1e-40) ? (p_tang - p_tang_ref) / p_tang_ref : 0.0;
                     rf_out << std::scientific << std::setprecision(16)
                            << t << "\t" << phi_rf << "\t" << dp_over_p << "\n";
                 }
             }
-            
+
             // ---- Poincaré section trigger ----
             // target_quad < 0 → every cell-0 arc entry (full-turn section)
             // target_quad ≥ 0 → specific quad: even=QF(elem2), odd=QD(elem6)
@@ -468,8 +475,11 @@ void run_integration(double* y_init, const double* field_params,
                 p_saved++;
             }
 
-            // ---- COD: sample element-entry position, skip first revolution ----
-            if (total_fodo_cells >= nFODO) {
+            // ---- COD: stage element-entry position for this revolution ----
+            // The staging buffer is committed to cod_sum only at revolution end.
+            // This guarantees cod_cnt[i] is uniform across all lattice positions,
+            // so s=0 and s=circumference carry the same number of averaged turns.
+            if (past_first_rev) {
                 int idx = current_fodo * 8 + elem;
                 double cod_x = 0.0;
                 if (elem == 0 || elem == 4) {
@@ -478,9 +488,8 @@ void run_integration(double* y_init, const double* field_params,
                 } else {
                     cod_x = y_init[0] - R0;
                 }
-                cod_x_sum[idx] += cod_x * 1000.0;  // mm
-                cod_y_sum[idx] += y_init[2] * 1000.0;
-                cod_cnt[idx]++;
+                stage_x[idx] = cod_x * 1000.0;  // mm (overwrite — one visit per rev)
+                stage_y[idx] = y_init[2] * 1000.0;
             }
 
             int type = 0;
@@ -586,8 +595,25 @@ void run_integration(double* y_init, const double* field_params,
             }
         }
         total_fodo_cells++;
+
+        // Commit staged COD data only when a complete revolution just finished.
+        // Partial last revolution stays in stage_x/y and is simply discarded.
+        if (total_fodo_cells % nFODO == 0) {
+            if (!past_first_rev) {
+                past_first_rev = true;  // first revolution done; begin staging next
+            } else {
+                for (int i = 0; i < n_lat; i++) {
+                    cod_x_sum[i] += stage_x[i];
+                    cod_y_sum[i] += stage_y[i];
+                    cod_cnt[i]++;  // same increment for every lattice position
+                }
+            }
+        }
     }
-    
+
+    delete[] stage_x;
+    delete[] stage_y;
+
     // ---- Write turn-averaged COD to cod_data.txt ----
     {
         FILE* cod_file = std::fopen("cod_data.txt", "w");
