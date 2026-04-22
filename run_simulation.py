@@ -115,7 +115,8 @@ def main():
     
     print(f"-> Son Radyal Sapma (x)      : {r_son[0]*1000:.4f} mm")
     print(f"-> Son Dikey Yükseklik (y)   : {r_son[1]*1000:.4f} mm")
-    tur_sayisi = r_son[2] / (2.0 * np.pi * R0)
+    circumference = 2.0 * np.pi * R0 + 4.0 * alanlar.nFODO * alanlar.driftLen + 2.0 * alanlar.nFODO * alanlar.quadLen
+    tur_sayisi = r_son[2] / circumference
     print(f"-> Toplam Atılan Tur Sayısı  : {tur_sayisi:.3f} tur")
     
     save_interval = max(1, int(adim_sayisi / return_steps))
