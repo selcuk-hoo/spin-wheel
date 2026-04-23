@@ -147,9 +147,12 @@ def main():
         freq = np.fft.rfftfreq(len(signal_mm), d=dt)
         amp = np.abs(np.fft.rfft(signal_mm - np.mean(signal_mm))) / len(signal_mm)
         mask = (freq > 0.0) & (amp > 0.0)
-        ax.plot(freq[mask], amp[mask], 'k-', lw=1.0)
-        ax.set_xscale('log')
-        ax.set_yscale('log')
+        if mask.any():
+            ax.plot(freq[mask], amp[mask], 'k-', lw=1.0)
+            ax.set_xscale('log')
+            ax.set_yscale('log')
+        else:
+            ax.text(0.5, 0.5, "Sinyal yok", ha='center', va='center', transform=ax.transAxes)
         ax.set_title(title)
         ax.set_xlabel("Frekans (Hz)")
         ax.set_ylabel("Genlik (mm)")

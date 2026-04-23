@@ -582,14 +582,18 @@ void run_integration(double* y_init, const double* field_params,
                 if (target_val - accumulated <= 1e-11) break;
             }
             
-            // ---- Frame reset: origin of next element ----
-            // sign handles counter-clockwise beams where Y can be negative.
+            // ---- Frame reset: place origin at start of next element ----
             if (type == 0) {
-                // Arc: undo the Phi_def rotation so Y ≈ 0 at next entry
-                double sign = (y_init[1] >= 0) ? 1.0 : -1.0;
-                rotate_all(y_init, -sign * Phi_def);
+                // Arc: rotate by the actual current angle atan2(Y,X) so that Y
+                // becomes exactly zero regardless of any small overshoot or
+                // undershoot in `accumulated` relative to Phi_def.
+                // Using the nominal Phi_def would leave a residual Y ∝ (dev/R0)*Phi_def
+                // that accumulates turn-by-turn and drives spurious oscillations.
+                double actual_angle = std::atan2(y_init[1], y_init[0]);
+                rotate_all(y_init, -actual_angle);
             } else {
-                // Straight: subtract the traversed length so Y ≈ 0 at next entry
+                // Straight: subtract the nominal traversal length.
+                // The error here is O(dev²/L) — negligible for small deviations.
                 double sign = (y_init[1] >= 0) ? 1.0 : -1.0;
                 y_init[1] -= sign * target_val;
             }
