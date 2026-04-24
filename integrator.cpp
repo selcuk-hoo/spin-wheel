@@ -85,6 +85,10 @@ void rotate_all(double* y, double theta) {
 //   [21] nFODO_off   apply quad offset at elem=2 of this cell (0-based), <0 disables
 //   [22] B0hor       equivalent horizontal field [T] for offset formula y_off = B0hor / K1
 //   [23] quadYOffset per-element vertical quad centre shift [m] (internal runtime override)
+//   [24] engeSwitch  0 = hard-edge, 1 = Enge soft-edge fringe
+//   [25] engeA       Enge polynomial coefficient a0 (default 2.0)
+//   [26] engeG       electrode gap [m] (default 0.05)
+//   [27] engeNorm    orbit-closure normalization (computed by run_integration)
 //
 // element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D, 4 = QUAD_F_MOD
 void get_electromagnetic_fields(double t, const double* r, const double* field_params, int element_type, double* E, double* B) {
@@ -130,6 +134,27 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         E[0] = E_r * cos_th;
         E[1] = E_r * sin_th;
         E[2] = E_z;
+
+        // Enge soft-edge fringe: scale E only (electric deflector, not magnetic).
+        // F(φ) = F_entrance(φ) · F_exit(φ) · engeNorm
+        // where F_entrance = sigmoid(a·φ/φ_g), F_exit = sigmoid(a·φ_remain/φ_g)
+        // and φ_g = engeG/R0 converts the gap length to an angle.
+        if (field_params[24] > 0.5 && R > 1e-6) {
+            double engeA    = field_params[25];
+            double engeG    = field_params[26];
+            double engeNorm = field_params[27];
+            double phi_g    = engeG / R0;
+            int    nFODO_e  = (int)(field_params[12] + 0.5);
+            double Phi_def_e = M_PI / nFODO_e;
+            double phi_prog  = std::abs(std::atan2(Y, X));
+            double phi_rem   = Phi_def_e - phi_prog;
+            double F_ent = 1.0 / (1.0 + std::exp(-engeA * phi_prog / phi_g));
+            double F_ext = 1.0 / (1.0 + std::exp(-engeA * phi_rem  / phi_g));
+            double F = F_ent * F_ext * engeNorm;
+            E[0] *= F;
+            E[1] *= F;
+            E[2] *= F;
+        }
 
         // Stray B projected onto (radial, tangential, vertical) unit vectors
         B[0] = -B0rad * cos_th + B0long * sin_th;
@@ -387,6 +412,29 @@ void run_integration(double* y_init, const double* field_params,
     double L_def = (2.0 * M_PI * R0) / (2.0 * nFODO);  // arc length per half-cell [m]
     double Phi_def = L_def / R0;                          // arc angle per half-cell [rad]
 
+    // Enge normalization: compute once so ∫₀^{Phi_def} F_ent·F_exit dφ = Phi_def
+    double enge_norm = 1.0;
+    if (field_params[24] > 0.5) {
+        double engeA = field_params[25];
+        double engeG = field_params[26];
+        double phi_g = engeG / R0;
+        if (phi_g > 1e-12) {
+            const int nint = 2000;
+            double dp = Phi_def / nint, sum = 0.0;
+            for (int i = 0; i < nint; i++) {
+                double phi = (i + 0.5) * dp;
+                double fe = 1.0 / (1.0 + std::exp(-engeA * phi / phi_g));
+                double fx = 1.0 / (1.0 + std::exp(-engeA * (Phi_def - phi) / phi_g));
+                sum += fe * fx;
+            }
+            double integral = sum * dp;
+            if (integral > 0.0) enge_norm = Phi_def / integral;
+        }
+        std::printf("[Enge] a=%.2f  g=%.4f m  phi_g=%.4e rad  norm=%.6f\n",
+                    engeA, engeG, phi_g, enge_norm);
+        std::fflush(stdout);
+    }
+
     // Exact s-coordinate at the entry of each of the 8 elements within a FODO cell
     double cell_len_exact = 2.0*L_def + 4.0*driftLen + 2.0*quadLen;
     double elem_s_offset[8] = {
@@ -499,13 +547,14 @@ void run_integration(double* y_init, const double* field_params,
             else if (elem == 2) { type = (current_fodo == 0) ? 4 : 2; target_val = quadLen; }
             else if (elem == 6) { type = 3; target_val = quadLen; }
 
-            double field_params_local[24];
-            for (int fp = 0; fp < 24; ++fp) field_params_local[fp] = field_params[fp];
+            double field_params_local[28];
+            for (int fp = 0; fp < 28; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);
             if (is_target_first_quad && std::abs(field_params[6]) > 1e-20) {
                 field_params_local[23] = B0hor / field_params[6];
             }
+            field_params_local[27] = enge_norm;
 
             double start_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
             double accumulated = 0.0;
