@@ -592,10 +592,12 @@ void run_integration(double* y_init, const double* field_params,
                 double actual_angle = std::atan2(y_init[1], y_init[0]);
                 rotate_all(y_init, -actual_angle);
             } else {
-                // Straight: subtract the nominal traversal length.
-                // The error here is O(dev²/L) — negligible for small deviations.
-                double sign = (y_init[1] >= 0) ? 1.0 : -1.0;
-                y_init[1] -= sign * target_val;
+                // Straight: zero Y exactly, analogous to the arc atan2-based reset.
+                // Drift and quad fields depend only on X and Z, not on Y, so
+                // translating the frame origin to the actual exit Y is exact.
+                // Subtracting the nominal target_val would leave a residual
+                // proportional to the last-step overshoot.
+                y_init[1] = 0.0;
             }
         }
         total_fodo_cells++;
