@@ -137,8 +137,11 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
 
         // Enge soft-edge fringe: scale E only (electric deflector, not magnetic).
         // F(φ) = F_entrance(φ) · F_exit(φ) · engeNorm
-        // where F_entrance = sigmoid(a·φ/φ_g), F_exit = sigmoid(a·φ_remain/φ_g)
-        // and φ_g = engeG/R0 converts the gap length to an angle.
+        //
+        // Profile: tanh(a·φ/(2·φ_g)) — identical fringe width to the sigmoid but
+        // starts from F=0 exactly at the geometric boundary (φ=0) rather than 0.5.
+        // This eliminates the 0.5·E0 hard-edge jump that the sigmoid leaves at the
+        // drift→arc interface and removes the associated numerical COD.
         if (field_params[24] > 0.5 && R > 1e-6) {
             double engeA    = field_params[25];
             double engeG    = field_params[26];
@@ -148,8 +151,8 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
             double Phi_def_e = M_PI / nFODO_e;
             double phi_prog  = std::abs(std::atan2(Y, X));
             double phi_rem   = Phi_def_e - phi_prog;
-            double F_ent = 1.0 / (1.0 + std::exp(-engeA * phi_prog / phi_g));
-            double F_ext = 1.0 / (1.0 + std::exp(-engeA * phi_rem  / phi_g));
+            double F_ent = std::tanh(engeA * phi_prog / (2.0 * phi_g));
+            double F_ext = std::tanh(engeA * phi_rem  / (2.0 * phi_g));
             double F = F_ent * F_ext * engeNorm;
             E[0] *= F;
             E[1] *= F;
@@ -423,8 +426,8 @@ void run_integration(double* y_init, const double* field_params,
             double dp = Phi_def / nint, sum = 0.0;
             for (int i = 0; i < nint; i++) {
                 double phi = (i + 0.5) * dp;
-                double fe = 1.0 / (1.0 + std::exp(-engeA * phi / phi_g));
-                double fx = 1.0 / (1.0 + std::exp(-engeA * (Phi_def - phi) / phi_g));
+                double fe = std::tanh(engeA * phi              / (2.0 * phi_g));
+                double fx = std::tanh(engeA * (Phi_def - phi)  / (2.0 * phi_g));
                 sum += fe * fx;
             }
             double integral = sum * dp;
