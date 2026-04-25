@@ -154,8 +154,14 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
             double F_ent = std::tanh(engeA * phi_prog / (2.0 * phi_g));
             double F_ext = std::tanh(engeA * phi_rem  / (2.0 * phi_g));
             double F = F_ent * F_ext * engeNorm;
-            E[0] *= F;
-            E[1] *= F;
+            // Only the radial component is fringed; E_tang stays zero (ideal deflector).
+            // Scaling E[1] (tangential) would do net work on the particle each arc,
+            // changing its energy and drifting the closed orbit over many turns.
+            double E_r    =  E[0]*cos_th + E[1]*sin_th;
+            double E_tang = -E[0]*sin_th + E[1]*cos_th;
+            E_r *= F;
+            E[0] = E_r*cos_th - E_tang*sin_th;
+            E[1] = E_r*sin_th + E_tang*cos_th;
             E[2] *= F;
         }
 
@@ -633,7 +639,31 @@ void run_integration(double* y_init, const double* field_params,
                 if (break_after) break;
                 if (target_val - accumulated <= 1e-11) break;
             }
-            
+
+            // ---- Arc endpoint Newton correction (Fix B) ----
+            // The shortened-step estimate uses instantaneous val_rate (1st order).
+            // A first-order Taylor correction of this 2nd-order residual brings
+            // the actual exit angle to ~3rd-order accuracy, removing the
+            // phase-correlated frame-rotation error that accumulates turn by turn.
+            if (type == 0) {
+                double phi_err = accumulated - target_val;
+                if (std::abs(phi_err) > 1e-13) {
+                    double R2c = y_init[0]*y_init[0] + y_init[1]*y_init[1];
+                    double p_sq_c = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
+                    double gam_c  = std::sqrt(1.0 + p_sq_c/(M_P*M_P*C_LIGHT*C_LIGHT));
+                    double vx_c   = y_init[3]/(gam_c*M_P);
+                    double vy_c   = y_init[4]/(gam_c*M_P);
+                    double vr_c   = (R2c > 1e-12) ? (y_init[0]*vy_c - y_init[1]*vx_c)/R2c : 0.0;
+                    if (std::abs(vr_c) > 1e-15) {
+                        double dt_corr = -phi_err / vr_c;
+                        double dydt_c[9];
+                        compute_rhs(t, y_init, field_params_local, type, dydt_c, dim);
+                        for (int ci = 0; ci < dim; ++ci) y_init[ci] += dt_corr * dydt_c[ci];
+                        t += dt_corr;
+                    }
+                }
+            }
+
             // ---- Frame reset: place origin at start of next element ----
             if (type == 0) {
                 // Arc: rotate by the actual current angle atan2(Y,X) so that Y
