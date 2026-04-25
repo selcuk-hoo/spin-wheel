@@ -83,9 +83,6 @@ def main():
     alanlar.quadModF = float(config.get("quadModF", 0.0))
     alanlar.nFODO_off = float(config.get("nFODO_off", -1))
     alanlar.B0hor = float(config.get("B0hor", 0.0))
-    alanlar.engeSwitch = float(config.get("engeSwitch", 0))
-    alanlar.engeA = float(config.get("engeA", 2.0))
-    alanlar.engeG = float(config.get("engeG", 0.05))
     
     t0 = 0.0
     t_end = config.get("t2", 1e-5)

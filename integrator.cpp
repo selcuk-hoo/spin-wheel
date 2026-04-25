@@ -85,10 +85,6 @@ void rotate_all(double* y, double theta) {
 //   [21] nFODO_off   apply quad offset at elem=2 of this cell (0-based), <0 disables
 //   [22] B0hor       equivalent horizontal field [T] for offset formula y_off = B0hor / K1
 //   [23] quadYOffset per-element vertical quad centre shift [m] (internal runtime override)
-//   [24] engeSwitch  0 = hard-edge, 1 = Enge soft-edge fringe
-//   [25] engeA       Enge polynomial coefficient a0 (default 2.0)
-//   [26] engeG       electrode gap [m] (default 0.05)
-//   [27] engeNorm    orbit-closure normalization (computed by run_integration)
 //
 // element_type: 0 = DEFLECTOR, 1 = DRIFT, 2 = QUAD_F, 3 = QUAD_D, 4 = QUAD_F_MOD
 void get_electromagnetic_fields(double t, const double* r, const double* field_params, int element_type, double* E, double* B) {
@@ -134,36 +130,6 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         E[0] = E_r * cos_th;
         E[1] = E_r * sin_th;
         E[2] = E_z;
-
-        // Enge soft-edge fringe: scale E only (electric deflector, not magnetic).
-        // F(φ) = F_entrance(φ) · F_exit(φ) · engeNorm
-        //
-        // Profile: tanh(a·φ/(2·φ_g)) — identical fringe width to the sigmoid but
-        // starts from F=0 exactly at the geometric boundary (φ=0) rather than 0.5.
-        // This eliminates the 0.5·E0 hard-edge jump that the sigmoid leaves at the
-        // drift→arc interface and removes the associated numerical COD.
-        if (field_params[24] > 0.5 && R > 1e-6) {
-            double engeA    = field_params[25];
-            double engeG    = field_params[26];
-            double engeNorm = field_params[27];
-            double phi_g    = engeG / R0;
-            int    nFODO_e  = (int)(field_params[12] + 0.5);
-            double Phi_def_e = M_PI / nFODO_e;
-            double phi_prog  = std::abs(std::atan2(Y, X));
-            double phi_rem   = Phi_def_e - phi_prog;
-            double F_ent = std::tanh(engeA * phi_prog / (2.0 * phi_g));
-            double F_ext = std::tanh(engeA * phi_rem  / (2.0 * phi_g));
-            double F = F_ent * F_ext * engeNorm;
-            // Only the radial component is fringed; E_tang stays zero (ideal deflector).
-            // Scaling E[1] (tangential) would do net work on the particle each arc,
-            // changing its energy and drifting the closed orbit over many turns.
-            double E_r    =  E[0]*cos_th + E[1]*sin_th;
-            double E_tang = -E[0]*sin_th + E[1]*cos_th;
-            E_r *= F;
-            E[0] = E_r*cos_th - E_tang*sin_th;
-            E[1] = E_r*sin_th + E_tang*cos_th;
-            E[2] *= F;
-        }
 
         // Stray B projected onto (radial, tangential, vertical) unit vectors
         B[0] = -B0rad * cos_th + B0long * sin_th;
@@ -421,29 +387,6 @@ void run_integration(double* y_init, const double* field_params,
     double L_def = (2.0 * M_PI * R0) / (2.0 * nFODO);  // arc length per half-cell [m]
     double Phi_def = L_def / R0;                          // arc angle per half-cell [rad]
 
-    // Enge normalization: compute once so ∫₀^{Phi_def} F_ent·F_exit dφ = Phi_def
-    double enge_norm = 1.0;
-    if (field_params[24] > 0.5) {
-        double engeA = field_params[25];
-        double engeG = field_params[26];
-        double phi_g = engeG / R0;
-        if (phi_g > 1e-12) {
-            const int nint = 2000;
-            double dp = Phi_def / nint, sum = 0.0;
-            for (int i = 0; i < nint; i++) {
-                double phi = (i + 0.5) * dp;
-                double fe = std::tanh(engeA * phi              / (2.0 * phi_g));
-                double fx = std::tanh(engeA * (Phi_def - phi)  / (2.0 * phi_g));
-                sum += fe * fx;
-            }
-            double integral = sum * dp;
-            if (integral > 0.0) enge_norm = Phi_def / integral;
-        }
-        std::printf("[Enge] a=%.2f  g=%.4f m  phi_g=%.4e rad  norm=%.6f\n",
-                    engeA, engeG, phi_g, enge_norm);
-        std::fflush(stdout);
-    }
-
     // Exact s-coordinate at the entry of each of the 8 elements within a FODO cell
     double cell_len_exact = 2.0*L_def + 4.0*driftLen + 2.0*quadLen;
     double elem_s_offset[8] = {
@@ -556,14 +499,13 @@ void run_integration(double* y_init, const double* field_params,
             else if (elem == 2) { type = (current_fodo == 0) ? 4 : 2; target_val = quadLen; }
             else if (elem == 6) { type = 3; target_val = quadLen; }
 
-            double field_params_local[28];
-            for (int fp = 0; fp < 28; ++fp) field_params_local[fp] = field_params[fp];
+            double field_params_local[24];
+            for (int fp = 0; fp < 24; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);
             if (is_target_first_quad && std::abs(field_params[6]) > 1e-20) {
                 field_params_local[23] = B0hor / field_params[6];
             }
-            field_params_local[27] = enge_norm;
 
             double start_metric = (type == 0) ? std::atan2(y_init[1], y_init[0]) : y_init[1];
             double accumulated = 0.0;
@@ -639,31 +581,7 @@ void run_integration(double* y_init, const double* field_params,
                 if (break_after) break;
                 if (target_val - accumulated <= 1e-11) break;
             }
-
-            // ---- Arc endpoint Newton correction (Fix B) ----
-            // The shortened-step estimate uses instantaneous val_rate (1st order).
-            // A first-order Taylor correction of this 2nd-order residual brings
-            // the actual exit angle to ~3rd-order accuracy, removing the
-            // phase-correlated frame-rotation error that accumulates turn by turn.
-            if (type == 0) {
-                double phi_err = accumulated - target_val;
-                if (std::abs(phi_err) > 1e-13) {
-                    double R2c = y_init[0]*y_init[0] + y_init[1]*y_init[1];
-                    double p_sq_c = y_init[3]*y_init[3] + y_init[4]*y_init[4] + y_init[5]*y_init[5];
-                    double gam_c  = std::sqrt(1.0 + p_sq_c/(M_P*M_P*C_LIGHT*C_LIGHT));
-                    double vx_c   = y_init[3]/(gam_c*M_P);
-                    double vy_c   = y_init[4]/(gam_c*M_P);
-                    double vr_c   = (R2c > 1e-12) ? (y_init[0]*vy_c - y_init[1]*vx_c)/R2c : 0.0;
-                    if (std::abs(vr_c) > 1e-15) {
-                        double dt_corr = -phi_err / vr_c;
-                        double dydt_c[9];
-                        compute_rhs(t, y_init, field_params_local, type, dydt_c, dim);
-                        for (int ci = 0; ci < dim; ++ci) y_init[ci] += dt_corr * dydt_c[ci];
-                        t += dt_corr;
-                    }
-                }
-            }
-
+            
             // ---- Frame reset: place origin at start of next element ----
             if (type == 0) {
                 // Arc: rotate by the actual current angle atan2(Y,X) so that Y

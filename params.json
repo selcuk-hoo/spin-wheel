@@ -31,8 +31,5 @@
     "eRatio": 1.0,
     "quadModA": 0.0,
     "quadModF": 10000.0,
-    "nFODO_off": 16,
-    "engeSwitch": 1,
-    "engeA": 2.0,
-    "engeG": 0.05
+    "nFODO_off": 16
 }

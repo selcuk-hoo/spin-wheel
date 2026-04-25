@@ -27,7 +27,7 @@ def _estimate_tune(u, up, nFODO, poincare_quad_index):
 
 
 def _load_cod(n_per_turn):
-    """Read cod_data.txt and return COD as (s, x_um, y_um)."""
+    """Read cod_data.txt and return COD as (s_m, x_mm, y_mm)."""
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -40,8 +40,8 @@ def _load_cod(n_per_turn):
     except (ValueError, OSError):
         return None, None, None
     print(f"[COD: {len(cd)} örgü elemanı okundu]")
-    # cod_data.txt stores x/y in mm; plot COD in micrometers.
-    return cd[:, 0], cd[:, 1] * 1000.0, cd[:, 2] * 1000.0
+    # cod_data.txt stores x/y in mm.
+    return cd[:, 0], cd[:, 1], cd[:, 2]
 
 
 def _save_rf_plot(params):
@@ -172,7 +172,7 @@ def main():
     axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[0, 1].set_title("Kapalı Yörünge — COD x")
     axs[0, 1].set_xlabel("s (m)")
-    axs[0, 1].set_ylabel("$x_{CO}$ (μm)")
+    axs[0, 1].set_ylabel("$x_{CO}$ (mm)")
     axs[0, 1].set_xlim(0, circumference)
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
@@ -205,7 +205,7 @@ def main():
     axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[1, 1].set_title("Kapalı Yörünge — COD y")
     axs[1, 1].set_xlabel("s (m)")
-    axs[1, 1].set_ylabel("$y_{CO}$ (μm)")
+    axs[1, 1].set_ylabel("$y_{CO}$ (mm)")
     axs[1, 1].set_xlim(0, circumference)
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
