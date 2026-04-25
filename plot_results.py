@@ -168,6 +168,12 @@ def main():
     if cod_s is not None:
         lbl = f"Qx={Qx:.3f}" if Qx is not None else "tur ort."
         axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5, label=lbl)
+        rms_x   = np.sqrt(np.mean(cod_x**2))
+        mean_x  = np.mean(cod_x)
+        axs[0, 1].text(0.03, 0.97,
+                       f"RMS = {rms_x*1e3:.2f} μm\nOrt = {mean_x*1e3:.2f} μm",
+                       transform=axs[0, 1].transAxes, fontsize=8, va='top',
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[0, 1].legend(fontsize=8)
     axs[0, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[0, 1].set_title("Kapalı Yörünge — COD x")
@@ -201,6 +207,12 @@ def main():
     if cod_s is not None:
         lbl = f"Qy={Qy:.3f}" if Qy is not None else "tur ort."
         axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5, label=lbl)
+        rms_y   = np.sqrt(np.mean(cod_y**2))
+        mean_y  = np.mean(cod_y)
+        axs[1, 1].text(0.03, 0.97,
+                       f"RMS = {rms_y*1e3:.2f} μm\nOrt = {mean_y*1e3:.2f} μm",
+                       transform=axs[1, 1].transAxes, fontsize=8, va='top',
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[1, 1].legend(fontsize=8)
     axs[1, 1].axhline(0, color='gray', lw=0.8, linestyle='--')
     axs[1, 1].set_title("Kapalı Yörünge — COD y")
