@@ -144,21 +144,36 @@ def plot_2d_results(npz_file="sweep_2d_results.npz", plot_file="sweep_2d_plots.p
     ax1.grid(True, linestyle='--', alpha=0.6)
     ax1.legend()
     
-    # 2. Linear Trend Check: K-Modulation Sensitivity vs B0hor
+    # 2. Linear Trend Check: RMS Y-COD vs B0hor
     ax2 = plt.subplot(2, 2, 2)
-    ax2.plot(B0hor, np.abs(slopes), 'go-', linewidth=2, markersize=8)
-    ax2.set_title("K-Modülasyon Duyarlılığı (Sensitivity vs B0hor)")
+    idx_nominal = np.argmin(np.abs(k0 - 0.2))
+    max_rms_per_bhor = np.max(rms_y, axis=1)
+    
+    ax2.plot(B0hor, rms_y[:, idx_nominal], 'bo-', label=f'Nominal k0={k0[idx_nominal]:.3f}')
+    ax2.plot(B0hor, max_rms_per_bhor, 'ro-', label=f'Maksimum RMS (Rezonans)')
+    ax2.set_title("Lineer Trend Kontrolü (RMS Y-COD vs B0hor)")
     ax2.set_xlabel("Manyetik Hata (B0hor) [T]")
-    ax2.set_ylabel("Duyarlılık |d(RMS)/dk0| [mm / (T/m)]")
+    ax2.set_ylabel("RMS Y-COD [mm]")
     ax2.grid(True, linestyle='--', alpha=0.6)
     
-    # Add a linear fit line to ax2 to show how linear it is
-    valid_slopes = ~np.isnan(slopes)
-    if np.sum(valid_slopes) > 1:
-        m, c = np.polyfit(B0hor[valid_slopes], np.abs(slopes)[valid_slopes], 1)
-        b_range = np.array([0, np.max(B0hor)])
-        ax2.plot(b_range, m*b_range + c, 'k--', alpha=0.5, label=f'Fit: y={m:.2e}x + {c:.2e}')
-        ax2.legend()
+    # Eğimleri hesapla (ΔRMS / ΔB0hor)
+    if len(B0hor) > 1:
+        slope_nom = (rms_y[-1, idx_nominal] - rms_y[0, idx_nominal]) / (B0hor[-1] - B0hor[0])
+        slope_res = (max_rms_per_bhor[-1] - max_rms_per_bhor[0]) / (B0hor[-1] - B0hor[0])
+        
+        # mm/T'yi um/uT'ye çevirmek için 1000'e bölüyoruz
+        s_nom_um_uT = slope_nom / 1000.0
+        s_res_um_uT = slope_res / 1000.0
+        s_diff_um_uT = (slope_res - slope_nom) / 1000.0
+        
+        ax2.text(0.05, 0.95, 
+                 f"Nominal Eğim: {s_nom_um_uT:.2f} $\\mu$m/$\\mu$T\n"
+                 f"Rezonans Eğim: {s_res_um_uT:.2f} $\\mu$m/$\\mu$T\n"
+                 f"Fark (Kazanç): {s_diff_um_uT:.2f} $\\mu$m/$\\mu$T",
+                 transform=ax2.transAxes, fontsize=10, va='top', ha='left',
+                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
+    
+    ax2.legend(loc='lower right')
     
     # 3. Tune Shift
     ax3 = plt.subplot(2, 2, 3)
@@ -169,6 +184,22 @@ def plot_2d_results(npz_file="sweep_2d_results.npz", plot_file="sweep_2d_plots.p
     ax3.set_ylabel("Tune (Q)")
     ax3.grid(True, linestyle='--', alpha=0.6)
     ax3.legend()
+    
+    # 4. K-Modulation Sensitivity (Slope) vs B0hor
+    ax4 = plt.subplot(2, 2, 4)
+    ax4.plot(B0hor, np.abs(slopes), 'go-', linewidth=2, markersize=8)
+    ax4.set_title("K-Modülasyon Duyarlılığı (Sensitivity vs B0hor)")
+    ax4.set_xlabel("Manyetik Hata (B0hor) [T]")
+    ax4.set_ylabel("Duyarlılık |d(RMS)/dk0| [mm / (T/m)]")
+    ax4.grid(True, linestyle='--', alpha=0.6)
+    
+    # Add a linear fit line to ax4 to show how linear it is
+    valid_slopes = ~np.isnan(slopes)
+    if np.sum(valid_slopes) > 1:
+        m, c = np.polyfit(B0hor[valid_slopes], np.abs(slopes)[valid_slopes], 1)
+        b_range = np.array([0, np.max(B0hor)])
+        ax4.plot(b_range, m*b_range + c, 'k--', alpha=0.5, label=f'Fit: y={m:.2e}x + {c:.2e}')
+        ax4.legend()
     
     plt.tight_layout()
     plt.savefig(plot_file, dpi=150)
