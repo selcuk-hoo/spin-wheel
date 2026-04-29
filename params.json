@@ -5,7 +5,7 @@
     "momError": 0.0,
     "dev0": 0.0,
     "y0": 0.0,
-    "theta0_hor": 1e-4,
+    "theta0_hor": 0.0,
     "theta0_ver": 0.0,
     "nFODO": 24,
     "t2": 0.001,
@@ -16,6 +16,7 @@
     "quadLen": 0.4,
     "driftLen": 2.0833,
     "k1": 0.21,
+    "k0": 0.12,
     "sextK1": -0.015,
     "quadSwitch": 1,
     "sextSwitch": 0,
@@ -25,11 +26,11 @@
     "h": 100,
     "E0_power": 1.0,
     "B0ver": 0.0,
-    "B0hor": 0.0001,
+    "B0hor": 5e-06,
     "B0long": 0.0,
     "B0rad_corr": 0.0,
     "eRatio": 1.0,
     "quadModA": 0.0,
     "quadModF": 10000.0,
-    "nFODO_off": 16
+    "nFODO_off": 10
 }

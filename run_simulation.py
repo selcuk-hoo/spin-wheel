@@ -5,6 +5,10 @@ import os
 from integrator import integrate_particle, FieldParams
 
 def load_parameters(param_file="params.json"):
+    """
+    Simülasyon donanım ve fizik parametrelerini (FODO, manyetik alanlar vs.)
+    JSON konfigürasyon dosyasından yükler.
+    """
     if not os.path.exists(param_file):
         raise FileNotFoundError(f"{param_file} bulunamadı!")
     with open(param_file, "r") as f:
@@ -12,6 +16,14 @@ def load_parameters(param_file="params.json"):
     return config
 
 def main():
+    """
+    Ana simülasyon rutini.
+    1. Sihirli Momentum (Magic Momentum) hesaplaması.
+    2. Başlangıç (Faz Uzayı) koşullarının belirlenmesi.
+    3. C++ motoruna entegrasyon çağrısı yapılması.
+    4. NAFF ile Tune analizi ve Emitans hesabı.
+    5. Spin Trendi analizi ve txt dosyalarına yazım.
+    """
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     config = load_parameters("params.json")
     if os.path.isfile("rf.txt"):
@@ -19,23 +31,33 @@ def main():
     if os.path.isfile("cod_data.txt"):
         os.remove("cod_data.txt")
     
-    M2 = 0.938272046 
-    AMU = 1.792847356 
-    C = 299792458.0 
-    M1 = 1.672621777e-27
+    # ---------------------------------------------------------
+    # 1. FİZİKSEL SABİTLER VE SİHİRLİ MOMENTUM HESABI
+    # Proton EDM deneylerinde spini hizada tutmak için
+    # Magic Momentum (Sihirli Momentum) ayarı kritik öneme sahiptir.
+    # ---------------------------------------------------------
+    M2 = 0.938272046     # Proton kütlesi (GeV/c^2)
+    AMU = 1.792847356    # Anormal manyetik moment sabiti
+    C = 299792458.0      # Işık hızı (m/s)
+    M1 = 1.672621777e-27 # Proton kütlesi (kg)
     
     p_magic_base = M2 / np.sqrt(AMU)
-    p_magic = p_magic_base * (1.0 + config.get("momError", 0.0))
+    p_magic = p_magic_base * (1.0 + config.get("momError", 0.0)) # Momentum hatası eklenebilir
     E_tot = np.sqrt(p_magic**2 + M2**2)
     beta0 = p_magic / E_tot
     gamma0 = 1.0 / np.sqrt(1.0 - beta0**2)
     eRatio = config.get("eRatio", 1.0)
     R0 = config["R0"]
+    # İhtiyaç duyulan Radyal Elektrik Alan (E0) hesabı
     E0_V_m = -eRatio * (p_magic_base * (p_magic_base / np.sqrt(p_magic_base**2 + M2**2)) / R0) * 1e9
     
-    direction = config.get("direction", -1)
-    x0 = config.get("dev0", 0.0)      
-    y0_vert = config.get("y0", 0.0)
+    # ---------------------------------------------------------
+    # 2. BAŞLANGIÇ KOŞULLARI (Faz Uzayı)
+    # R_local: [x, y, z] , P_local: [px, py, pz] , S_local: [sx, sy, sz]
+    # ---------------------------------------------------------
+    direction = config.get("direction", -1) # Dönüş yönü (saat yönü vs tersi)
+    x0 = config.get("dev0", 0.0)            # Radyal başlangıç sapması (m)
+    y0_vert = config.get("y0", 0.0)         # Dikey başlangıç sapması (m)
     z0_long = 0.0
     r0_local = [x0, y0_vert, z0_long]
     
@@ -59,6 +81,9 @@ def main():
     y0.extend(p_local)
     y0.extend(s_local)
     
+    # ---------------------------------------------------------
+    # 3. FIZIKSEL PARAMETRELERIN C++'A AKTARIMI
+    # ---------------------------------------------------------
     alanlar = FieldParams()
     alanlar.R0 = R0
     alanlar.E0 = E0_V_m
@@ -67,6 +92,7 @@ def main():
     alanlar.B0rad = config.get("B0rad", 0.0)
     alanlar.B0long = config.get("B0long", 0.0)
     alanlar.quadK1 = config.get("k1", 0.0)
+    alanlar.quadK0 = config.get("k0", alanlar.quadK1)
     alanlar.sextK1 = config.get("sextK1", 0.0)
     alanlar.quadSwitch = float(config.get("quadSwitch", 1))
     alanlar.sextSwitch = float(config.get("sextSwitch", 0))
@@ -103,6 +129,7 @@ def main():
     print(f"Simülasyon motoru çalışıyor (Toplam Adım: {adim_sayisi:,})")
     start_time = time.time()
 
+    # C++ Entegratörünün çağrılması (Performans Kritik Bölüm)
     sonuclar_local, poin_local, poincare_t_arr = integrate_particle(
         y0, t0, t_end, h, fields=alanlar, return_steps=return_steps
     )
@@ -141,6 +168,12 @@ def main():
         cov_y = np.cov(y_pc, yp_pc)[0,1]
         eps_y = 2 * np.sqrt(max(0, var_y * var_yp - cov_y**2))
         
+        # ---------------------------------------------------------
+        # 4. EMİTANS VE TUNE HESAPLAMALARI
+        # Emitans, faz uzayında kaplanan alanın ölçüsüdür.
+        # NAFF (Numerical Analysis of Fundamental Frequencies) ile
+        # yüksek hassasiyetli betatron tune (Qx, Qy) bulunur.
+        # ---------------------------------------------------------
         print(f"-> Geometrik Emitans (x)     : {eps_x:.1e} pi*mm*mrad")
         print(f"-> Geometrik Emitans (y)     : {eps_y:.1e} pi*mm*mrad")
 
@@ -161,7 +194,11 @@ def main():
     sx_arr = sonuclar_local[:, 6]
     sy_arr = sonuclar_local[:, 7]
     
-    # Savitzky-Golay Filtresi ile Salinim Giderimi
+    # ---------------------------------------------------------
+    # 5. SPİN TRENDİ (SECULAR TREND) ANALİZİ
+    # Savitzky-Golay filtresi, hızlı g-2 salınımlarını pürüzsüzleştirir
+    # ve spinin net kayma eğilimini (eğimi) ortaya çıkarır.
+    # ---------------------------------------------------------
     from scipy.signal import savgol_filter
     window_size = (len(sx_arr) // 4) * 2 + 1 
     if window_size < 5: window_size = 5
@@ -183,6 +220,10 @@ def main():
     print(f"-> Dikey  Trend Eğimi (S_y-t): {slope_sy:.4e} rad/s")
     print("--------------------------------------------------")
     
+    # ---------------------------------------------------------
+    # 6. VERİLERİN KAYDEDİLMESİ (TXT)
+    # Grafikler ve K-Modülasyon analizleri için bu dosyalar kullanılır.
+    # ---------------------------------------------------------
     print("Sürekli (Continuous) veriler yazılıyor (simulation_data.txt)...")
     save_interval = max(1, int(adim_sayisi / return_steps))
     t_array = t0 + np.arange(sonuclar_local.shape[0]) * (save_interval * h)

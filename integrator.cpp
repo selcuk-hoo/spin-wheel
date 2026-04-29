@@ -1,5 +1,15 @@
 // integrator.cpp — proton EDM storage-ring particle and spin tracker
 //
+// ==============================================================================
+// 6D PROTON EDM SİMÜLASYONU - C++ HESAPLAMA MOTORU (GL4 ENTEGRATÖRÜ)
+// Yazar: Selcuk H.
+//
+// Bu kütüphane, parçacıkların elektromanyetik alanlardaki kuple (coupled) 6D faz 
+// uzayı hareketini ve Thomas-BMT denklemine göre spin vektörünün presesyonunu 
+// hesaplar. Yüksek kararlılık (faz uzayı hacmi korunumu) için 4. Dereceden 
+// Gauss-Legendre (GL4) Simplektik (Symplectic) Entegrasyon yöntemi kullanılır.
+// ==============================================================================
+//
 // Coordinate system (local rotating frame):
 //   X = radial (outward from ring centre)
 //   Y = azimuthal / tangential (along the nominal orbit)
@@ -127,6 +137,11 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
                 E_z = E0 * pow_n * ((n-1.0)*zR - (n*n-1.0)*(n+1.0)*zR2*zR/6.0);
             }
         }
+        // ELEKTROMANYETİK ALAN (FODO) TANIMLAMALARI
+        // Verilen 's' (uzunlamasına konum) değerine göre parçacığın halkanın hangi 
+        // elemanının (Dipol, Quadrupole, Sextupole, RF Kovuğu vb.) içinde olduğunu bulur
+        // ve o noktadaki yerel elektromanyetik alanları (E, B) hesaplar.
+        // Ayrıca K-Modülasyon ve misalignments (B0hor vs) hatalarını da burada ekler.
         E[0] = E_r * cos_th;
         E[1] = E_r * sin_th;
         E[2] = E_z;
@@ -137,7 +152,8 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         B[2] = B0ver;
     } else if (element_type == 2 || element_type == 3) {
         // QUADRUPOLE (QF or QD, normal — no time modulation).
-        //
+        // Y ekseninden sapmalara odaklama uygular.
+
         // dev_quad = X - R0: radial deviation from the quad magnetic centre.
         // Pure quadrupole (satisfies ∇·B = 0 and ∇×B = 0):
         //   B_r =  K1 * Z
@@ -168,10 +184,11 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     } else if (element_type == 4) {
         // QUAD_F_MOD: focusing quad with time-modulated K1 (cell 0 only).
         // Used for parametric resonance studies.
-        //   K1_eff(t) = K1 * (1 + A_mod * cos(2π * f_mod * t))
+        //   K1_eff(t) = K0 * (1 + A_mod * cos(2π * f_mod * t))
+        double quadK0 = field_params[24];
         double A_mod  = field_params[19];
         double f_mod  = field_params[20];
-        double K1_eff = quadK1 * (1.0 + A_mod * std::cos(2.0 * M_PI * f_mod * t));
+        double K1_eff = quadK0 * (1.0 + A_mod * std::cos(2.0 * M_PI * f_mod * t));
 
         double dev_quad = X - R0;
         double y_rel = Z - quadYOffset;
@@ -499,9 +516,14 @@ void run_integration(double* y_init, const double* field_params,
             else if (elem == 2) { type = (current_fodo == 0) ? 4 : 2; target_val = quadLen; }
             else if (elem == 6) { type = 3; target_val = quadLen; }
 
-            double field_params_local[24];
-            for (int fp = 0; fp < 24; ++fp) field_params_local[fp] = field_params[fp];
+            // ==============================================================================
+            // ANA SİMÜLASYON DÖNGÜSÜ (run_integration)
+            // Python (ctypes) tarafından tetiklenir.
+            // ==============================================================================
+            double field_params_local[25];
+            for (int fp = 0; fp < 25; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
+            // Dikey mis-alignment (B0hor ile oluşturulan quad offset'i)
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);
             if (is_target_first_quad && std::abs(field_params[6]) > 1e-20) {
                 field_params_local[23] = B0hor / field_params[6];
@@ -631,6 +653,13 @@ void run_integration(double* y_init, const double* field_params,
                     std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n", s_here, avg_x, avg_y);
                 }
             }
+            
+            // Explicitly add the boundary point s=circumference to close the loop in output data.
+            // Physically, the exit of the ring is identical to the entrance (idx = 0).
+            double avg_x_end = (cod_cnt[0] > 0) ? cod_x_sum[0] / cod_cnt[0] : 0.0;
+            double avg_y_end = (cod_cnt[0] > 0) ? cod_y_sum[0] / cod_cnt[0] : 0.0;
+            std::fprintf(cod_file, "%.6f\t%.6f\t%.6f\n", circumference, avg_x_end, avg_y_end);
+            
             std::fclose(cod_file);
         }
     }

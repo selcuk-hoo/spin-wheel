@@ -13,7 +13,14 @@ def _p(*parts):
 
 
 def _estimate_tune(u, up, nFODO, poincare_quad_index):
-    """Estimate betatron tune (per revolution) from Poincaré phase-space data."""
+    """
+    Poincaré faz uzayı verilerinden (x-x' veya y-y') devir başına Betatron Tune (Q)
+    değerini tahmin eder.
+    
+    Yöntem: Faz açısındaki ilerlemeyi hesaplar (unwrap atan2). Eğer ölçüm noktası
+    özel bir Quadrupole değilse (poincare_quad_index < 0), her geçiş bir FODO hücresidir,
+    dolayısıyla nFODO ile çarpılarak tam tur başına Tune bulunur.
+    """
     uc  = u  - u.mean()
     upc = up - up.mean()
     if np.std(uc) < 1e-12 or np.std(upc) < 1e-12:
@@ -27,7 +34,11 @@ def _estimate_tune(u, up, nFODO, poincare_quad_index):
 
 
 def _load_cod(n_per_turn):
-    """Read cod_data.txt and return COD as (s_m, x_mm, y_mm)."""
+    """
+    run_simulation.py tarafından üretilen 'cod_data.txt' dosyasını okur.
+    Kapalı Yörünge (Closed Orbit Distortion - COD) verilerini (s_m, x_mm, y_mm) 
+    döndürür. Kapalı yörünge, halkanın referans yörüngesinden sapmaları ifade eder.
+    """
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -83,6 +94,15 @@ def _save_rf_plot(params):
 
 
 def main():
+    """
+    Ana görselleştirme rutini. 'simulation_data.txt', 'cod_data.txt' ve 
+    'poincare_data.txt' dosyalarını analiz ederek 3x4'lük devasa bir 
+    analiz paneli çizer. İçeriği:
+    - Orbit ve Faz Uzayı (Emitans hesaplamaları)
+    - Kapalı Yörünge Bozulması (COD) ve RMS analizi
+    - FFT ile frekans spektrumu
+    - Spin komponentleri (Sx, Sy, Sz) ve Savitzky-Golay ile eğim (trend) hesabı
+    """
     sim_path = _p("simulation_data.txt")
     if not os.path.exists(sim_path):
         print("HATA: 'simulation_data.txt' bulunamadı.")
