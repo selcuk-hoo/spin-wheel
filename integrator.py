@@ -180,7 +180,8 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000):
     field_arr = fields.to_c_array()
 
     # C++ hafıza bloklarının (array) Python tarafında tahsis edilmesi.
-    # C++ fonksiyonu değerleri bu pointer'ların gösterdiği belleğe yazacaktır.    history_c = (ctypes.c_double * (9 * return_steps))()
+    # C++ fonksiyonu değerleri bu pointer'ların gösterdiği belleğe yazacaktır.
+    history_c = (ctypes.c_double * (9 * return_steps))()
     max_poincare = 200000
     poincare_c = (ctypes.c_double * (9 * max_poincare))()
     poincare_count = (ctypes.c_int * 1)(0)
@@ -194,6 +195,7 @@ def integrate_particle(y0_local, t0, t_end, h, fields=None, return_steps=1000):
     poincare_t_np = np.ctypeslib.as_array(poincare_t_c).copy()[:num_p]
     poincare_np = np.ctypeslib.as_array(poincare_c).reshape((max_poincare, 9))[:num_p]
 
+    history_np = np.ctypeslib.as_array(history_c).reshape((return_steps, 9))
     hist_local = convert_global_to_local_matrix(history_np, R0, z)
     if num_p > 0:
         poin_local = convert_global_to_local_matrix(poincare_np, R0, z)

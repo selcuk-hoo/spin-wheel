@@ -14,7 +14,7 @@ def save_params(params, filename="params.json"):
     with open(filename, "w") as f:
         json.dump(params, f, indent=4)
 
-def run_2d_sweep(B0hor_vals, k0_start=0.1, k0_end=0.3, num_k0_steps=11, output_file="sweep_2d_results.npz"):
+def run_2d_sweep(B0hor_vals, k0_start=0.08, k0_end=0.1, num_k0_steps=3, output_file="sweep_2d_results.npz"):
     """
     K-Modülasyon (Quadrupole Tarama) işlemini gerçekleştirir.
     Dış döngüde manyetik hata (B0hor), iç döngüde Quadrupole gücü (k0) taranır.
@@ -80,6 +80,7 @@ def run_2d_sweep(B0hor_vals, k0_start=0.1, k0_end=0.3, num_k0_steps=11, output_f
                         s_m = cod_df["s_m"].values
                 except Exception as e:
                     print(f"Error: {e}", end=" ")
+                    rms_y = np.nan
                     rms_y_matrix[i, j] = np.nan
                     cod_y_2d.append(np.full_like(s_m, np.nan) if s_m is not None else [])
                 
@@ -213,7 +214,7 @@ if __name__ == "__main__":
     output_plot = "sweep_2d_plots.png"
     
     # Run the sweep (11 steps per B0hor)
-    run_2d_sweep(B0hor_vals=B0hor_vals, k0_start=0.1, k0_end=0.3, num_k0_steps=11, output_file=output_data)
+    run_2d_sweep(B0hor_vals=B0hor_vals, k0_start=0.08, k0_end=0.1, num_k0_steps=3, output_file=output_data)
     
     # Plot
     plot_2d_results(npz_file=output_data, plot_file=output_plot)
