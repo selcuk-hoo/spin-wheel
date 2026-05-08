@@ -44,7 +44,6 @@ const double C_LIGHT = 299792458.0;       // speed of light [m/s]
 const double M_P     = 1.672621777e-27;   // proton rest mass [kg]
 const double Q_E     = 1.602176565e-19;   // proton charge [C]
 const double G_P     = 1.792847356;       // proton anomalous magnetic moment G = (g-2)/2
-const double EDM_ETA = 1.88e-15;          // proton EDM sensitivity parameter η
 
 inline void cross_product(const double* a, const double* b, double* res) {
     res[0] = a[1]*b[2] - a[2]*b[1];
@@ -107,6 +106,7 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     double quadK1   = field_params[6];
     double sextK1   = field_params[7];
     double quadYOffset = field_params[23];
+    double E0ver    = field_params[25];
     
     double X = r[0], Y = r[1], Z = r[2];
     double R = std::sqrt(X*X + Y*Y);
@@ -144,7 +144,7 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         // Ayrıca K-Modülasyon ve misalignments (B0hor vs) hatalarını da burada ekler.
         E[0] = E_r * cos_th;
         E[1] = E_r * sin_th;
-        E[2] = E_z;
+        E[2] = E_z + E0ver;
 
         // Stray B projected onto (radial, tangential, vertical) unit vectors
         B[0] = -B0rad * cos_th + B0long * sin_th;
@@ -251,6 +251,7 @@ void compute_rhs(double t, const double* y, const double* field_params, int elem
         dpdt[i] = Q_E * (E[i] + v_cross_B[i]);
 
     double EDMSwitch   = field_params[10];
+    double EDM_ETA     = field_params[26];
     double beta_dot_B  = dot_product(beta, B);
     double beta_dot_E  = dot_product(beta, E);
     double beta_cross_E[3], beta_cross_B[3];
@@ -520,8 +521,8 @@ void run_integration(double* y_init, const double* field_params,
             // ANA SİMÜLASYON DÖNGÜSÜ (run_integration)
             // Python (ctypes) tarafından tetiklenir.
             // ==============================================================================
-            double field_params_local[25];
-            for (int fp = 0; fp < 25; ++fp) field_params_local[fp] = field_params[fp];
+            double field_params_local[27];
+            for (int fp = 0; fp < 27; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
             // Dikey mis-alignment (B0hor ile oluşturulan quad offset'i)
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);

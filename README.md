@@ -1,61 +1,49 @@
-# 6D Proton EDM Spin-Wheel Depolama Halkası Simülatörü
+# Spin-Wheel 6D Tracking Simulation
 
-**Yazar:** Selcuk H.
+Bu proje, bir depolama halkasındaki (storage ring) protonların yörünge (orbital) ve spin dinamiklerini yüksek hassasiyetle modellemek üzere geliştirilmiş **6D Parçacık İzleme (Particle Tracking)** simülasyonudur. Projenin ana odak noktası, protonun **Elektrik Dipol Momentini (EDM)** ölçmek için önerilen **"Spin-Wheel"** metodunun fiziksel ve nümerik analizidir.
 
-Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış, tam 6-Boyutlu (6D) ve yüksek hassasiyetli bir depolama halkası simülasyonudur. Parçacık (beam) dinamiği ve Thomas-BMT denklemi üzerinden spin presesyonu hesaplamaları, aşırı yüksek kararlılık gerektiren **GL4 (Gauss-Legendre 4. Derece) Simplektik Entegratör** ile C++ ortamında çözülür. Parametre yönetimi, simülasyon orkestrasyonu ve grafiksel analizler (Betatron Tune NAFF hesaplaması, K-Modülasyon duyarlılık analizi vs.) Python betikleri aracılığıyla sağlanır.
+## 🚀 Temel Özellikler
 
-## Temel Fiziksel Özellikler
-* **6D Faz Uzayı Takibi:** $x, p_x, y, p_y, z, p_z$ değişkenleri ile tam kuple (coupled) ışın takibi.
-* **Thomas-BMT Spin Takibi:** Elektrik ve manyetik alanlarda spin vektörünün $(S_x, S_y, S_z)$ tam çözümü.
-* **Simplektik Yapı:** Enerji ve faz uzayı hacmini koruyan 4. dereceden (GL4) örtük (implicit) entegrasyon.
-* **K-Modülasyon & Tune Analizi:** `nafflib` aracılığıyla yüksek hassasiyetli Tune ($Q_x, Q_y$) çıkartılması ve Quadrupole hatalarının K-Modülasyon tekniğiyle (Closed Orbit Distortion üzerinden) haritalanması.
+- **Yüksek Hassasiyetli C++ Motoru:** Parçacığın yörünge (Lorentz kuvveti) ve spin (Thomas-BMT denklemi) hareketleri, 4. dereceden örtük (implicit) **Gauss-Legendre (GL4)** entegratörü ile eşzamanlı çözülür. Bu sympletik benzeri yapı, uzun süreli simülasyonlarda faz uzayı hacmini ve spin uzunluğunu mükemmel şekilde korur.
+- **Gerçekçi Örgü (Lattice) Modellemesi:** FODO hücreleri, Quadrupole, Sextupole ve RF kaviteleri eksiksiz modellenir.
+- **Spin-Wheel EDM Ölçümü:** Sisteme eklenen dikey elektrik alanı (`E0ver`) sayesinde spinin yavaş salınımları tetiklenir. `EDM_ETA` ($\eta$) duyarlılık parametresi dışarıdan ayarlanabilir.
+- **Gelişmiş Sinyal İşleme (Curve Fitting):** Sadece birkaç milisaniyelik kısa simülasyon verilerinden dahi ~110 Hz gibi düşük frekanslı spin salınımlarını (Spin-Wheel frekansını) bulabilmek için **Hareketli Ortalama (Moving Average)** filtrelemesi ve non-lineer eğri uydurma algoritmaları kullanılır. Yüksek frekanslı betatron gürültüleri filtre ile tamamen yok edilir.
 
-## Dosya Yapısı
-* `integrator.cpp`: Yüksek performanslı hesaplama motoru (C++ dinamik kütüphanesi).
-* `integrator.py`: Python ile C++ kütüphanesi (`ctypes`) arasında veri köprüsü kuran modül.
-* `params.json`: Simülasyonun tüm donanımsal (FODO uzunlukları, manyetik alanlar, RF voltajı vb.) parametrelerini barındıran konfigürasyon dosyası.
-* `run_simulation.py`: Tekil simülasyonu başlatan, zaman verilerini toplayan ve txt dosyalarına yazan ana Python betiği.
-* `plot_results.py`: Elde edilen verilerin spin trendlerini, kapalı yörüngesini (COD) ve Poincaré kesitlerini çizen analiz betiği.
-* `sweep_k0.py`: Sistemdeki global hataları ($B_{rad}$ vb.) ölçmek için K-Modülasyon taraması yapan, RMS Y-COD değerlerinin duyarlılığını çıkaran betik.
+## ⚙️ Kurulum ve Kullanım
 
-## Gereksinimler (Prerequisites)
-Simülasyonları çalıştırabilmek için sisteminizde C++ derleyicisi ve Python 3 (ilgili kütüphaneler ile) bulunmalıdır:
+Simülasyon motorunun kalbi C++ ile yazılmıştır ve Python üzerinden çağrılır (ctypes/shared library).
+
+### 1. C++ Motorunu Derleme
+Simülasyonu ilk kez çalıştırıyorsanız veya `integrator.cpp` dosyasında değişiklik yaptıysanız motoru derlemeniz gerekir:
 ```bash
-pip install numpy scipy pandas matplotlib nafflib
+g++ -O3 -shared -fPIC -o integrator.dylib integrator.cpp
 ```
+*(Linux/Windows kullanıcıları uzantıyı `.so` veya `.dll` olarak değiştirmelidir)*
 
-## Kurulum ve Derleme (Compilation)
-Performans kritik olduğu için `integrator.cpp` dosyasının ilk kullanımdan önce sisteminize uygun bir şekilde dinamik kütüphane (.so veya .dylib) olarak derlenmesi gerekmektedir.
-
-**Linux Ortamında:**
+### 2. Simülasyonu Çalıştırma
+Fiziksel parametreleri `params.json` dosyasından ayarladıktan sonra simülasyonu başlatın:
 ```bash
-g++ -shared -o lib_integrator.so -fPIC -O3 integrator.cpp
+python run_simulation.py
 ```
+Bu işlem sonucunda `simulation_data.txt` ve `poincare_data.txt` dosyaları üretilir.
 
-**macOS Ortamında:**
+### 3. Sonuçları Analiz Etme ve Görselleştirme
 ```bash
-clang++ -dynamiclib -o lib_integrator.dylib -O3 integrator.cpp
-# Not: integrator.py dosyasındaki ctypes.CDLL satırının ".dylib" uzantısını yükleyecek şekilde ayarlandığından emin olun. (Örn: ctypes.CDLL("./lib_integrator.dylib"))
+python plot_results.py
 ```
+Bu kod, devasa bir 3x4 panel oluşturur, faz uzaylarını, spinin zamanla değişimini ve FFT grafiklerini çizer. Aynı zamanda dikey spin ($S_y$) üzerine "Curve Fit" algoritmasını uygulayarak terminale tespit edilen EDM spin-wheel frekansını basar. Grafikler `simulasyon_sonuclari.png` olarak kaydedilir.
 
-## Nasıl Çalıştırılır?
+## 🛠 `params.json` Parametreleri Hakkında
 
-### 1. Tekil Simülasyon Koşusu
-Fiziksel parametreleri `params.json` dosyasından ayarladıktan sonra ana simülasyonu çalıştırın:
-```bash
-python3 run_simulation.py
-```
-Bu işlem sonunda halkanın farklı noktalarına dair `simulation_data.txt`, `cod_data.txt` ve `poincare_data.txt` veri dosyaları oluşturulacaktır.
+Simülasyon tamamen dışa açık bir JSON konfigürasyonuyla yönetilir. Öne çıkan bazı parametreler:
+- `t2`: Simülasyonun toplam süresi (saniye). Spin-wheel analizi için (Curve Fit algoritmasının doğru çalışması adına) minimum **0.01 (10 ms)** olması tavsiye edilir.
+- `E0ver`: Deflektörlerdeki dikey elektrik alanı (V/m).
+- `EDM_ETA`: Protonun EDM duyarlılık katsayısı ($\eta$). (Standart model beklentisi ~1.88e-15 civarındadır. Gözlemlenebilirliği test etmek için bu değer artırılabilir).
+- `poincare_quad_index`: `-1` yapıldığında her FODO hücresinin başında kayıt alınır, bu sayede Tune aliasing (frekans katlanması) hataları önlenir.
+- `dev0`: Parçacığın yatay (x) eksenindeki başlangıç sapması. Eğer sıfır olursa, yatay hareket tamamen dikey hareketin enerji kuplajından (dispersion) kaynaklanan bir gölgeye dönüşür. Gerçek yatay Tune değerini okumak için ufak bir değer (örneğin `0.001` mm) verilmelidir.
 
-### 2. Görselleştirme ve Analiz
-Oluşan txt dosyalarındaki verileri işleyip profesyonel grafikler elde etmek için:
-```bash
-python3 plot_results.py
-```
+## 🔬 Spin-Wheel Sinyal Analizi
+Simülasyondaki yatay (betatron) salınımları tipik olarak 10-100 kHz mertebesindedir. Spin-Wheel metodunun tetiklediği EDM salınımı ise 100-200 Hz aralığındadır. Algoritma, yüksek frekanslı gürültüyü ekarte etmek için **10 kHz yutma kapasiteli 0.1 ms pencere boyutlu Hareketli Ortalama (Moving Average) Filtresi** kullanır ve filtreli veri üzerinden `scipy.optimize.curve_fit` ile ana frekansı mükemmel hassasiyette çeker.
 
-### 3. K-Modülasyon (Quadrupole Sweep) Analizi
-Belirli bir $B_{hor}$ hizalama veya global dipol hatası varlığında, ilk Quadrupole'un gücünü ($k_0$) tarayarak halkanın hataya duyarlılığını (Sensitivity) ölçmek için:
-```bash
-python3 sweep_k0.py
-```
-Bu betik arka planda çok sayıda simülasyon koşturacak, RMS yörünge sapmalarını bulacak ve `sweep_2d_results.npz` ile analiz grafiğini üretecektir.
+---
+*Geliştirici Notu: Bu kod, EDM araştırmaları için parçacık izleme simülasyonu temel alınarak geliştirilmiştir.*

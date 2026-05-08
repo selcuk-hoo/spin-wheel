@@ -203,9 +203,15 @@ def main():
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
     if len(x_pc) > 1:
-        axs[0, 2].plot(x_pc, xp_pc, 'ko', markersize=3)
-        vx  = np.var(x_pc); vxp = np.var(xp_pc)
-        eps = 2 * np.sqrt(max(0, vx * vxp - np.cov(x_pc, xp_pc)[0, 1]**2))
+        if pq_idx < 0:
+            plot_x_pc = x_pc[::int(nFODO)]
+            plot_xp_pc = xp_pc[::int(nFODO)]
+        else:
+            plot_x_pc = x_pc
+            plot_xp_pc = xp_pc
+        axs[0, 2].plot(plot_x_pc, plot_xp_pc, 'ko', markersize=3)
+        vx  = np.var(plot_x_pc); vxp = np.var(plot_xp_pc)
+        eps = 2 * np.sqrt(max(0, vx * vxp - np.cov(plot_x_pc, plot_xp_pc)[0, 1]**2))
         axs[0, 2].text(0.05, 0.95, f"$\\epsilon_x = {eps:.1e}$ $\\pi$·mm·mrad",
                        transform=axs[0, 2].transAxes, fontsize=9, va='top',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -242,9 +248,15 @@ def main():
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
     if len(y_pc) > 1:
-        axs[1, 2].plot(y_pc, yp_pc, 'ko', markersize=3)
-        vy  = np.var(y_pc); vyp = np.var(yp_pc)
-        eps = 2 * np.sqrt(max(0, vy * vyp - np.cov(y_pc, yp_pc)[0, 1]**2))
+        if pq_idx < 0:
+            plot_y_pc = y_pc[::int(nFODO)]
+            plot_yp_pc = yp_pc[::int(nFODO)]
+        else:
+            plot_y_pc = y_pc
+            plot_yp_pc = yp_pc
+        axs[1, 2].plot(plot_y_pc, plot_yp_pc, 'ko', markersize=3)
+        vy  = np.var(plot_y_pc); vyp = np.var(plot_yp_pc)
+        eps = 2 * np.sqrt(max(0, vy * vyp - np.cov(plot_y_pc, plot_yp_pc)[0, 1]**2))
         axs[1, 2].text(0.05, 0.95, f"$\\epsilon_y = {eps:.1e}$ $\\pi$·mm·mrad",
                        transform=axs[1, 2].transAxes, fontsize=9, va='top',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -283,7 +295,52 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    _spin_panel(axs[2, 1], sy, "$S_y$")
+    # S_y için özel filtreleme ve sinüs eğri uydurma (Curve Fit) algoritması
+    def _sy_sine_fit(ax, signal, ylabel):
+        ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
+        
+        try:
+            from scipy.ndimage import uniform_filter1d
+            from scipy.optimize import curve_fit
+            
+            dt = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
+            
+            # Moving Average (Hareketli Ortalama) Filtresi (0.1 ms pencere ~ 10 kHz yutma)
+            window_size = max(5, int(1e-4 / dt))
+            filt_ma = uniform_filter1d(signal, size=window_size)
+            
+            ax.plot(t, filt_ma, 'g-', lw=1.5, label='Moving Avg Filtreli', alpha=0.8)
+            
+            # Sinüs modeli: f(t) = A * sin(2*pi*f*t + phi) + C
+            def sine_func(t_val, A, f, phi, C):
+                return A * np.sin(2 * np.pi * f * t_val + phi) + C
+                
+            A_guess = max(1e-6, (np.max(filt_ma) - np.min(filt_ma)) / 2.0)
+            C_guess = np.mean(filt_ma)
+            bounds = ([0.0, 10.0, -np.pi, -1.0], [np.inf, 1000.0, np.pi, 1.0])
+            popt_ma, _ = curve_fit(sine_func, t_sec, filt_ma, p0=[A_guess, 110.0, 0.0, C_guess], bounds=bounds, maxfev=5000)
+            
+            print("-" * 50)
+            print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
+            print(f"-> Frekans : {abs(popt_ma[1]):.4f} Hz")
+            print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
+            print("-" * 50)
+            
+            ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
+            ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.3f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                    transform=ax.transAxes, fontsize=9, va='bottom',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+        except Exception as e:
+            print(f"S_y fit hatası: {e}")
+            _spin_panel(ax, signal, ylabel)
+            return
+
+        ax.legend(fontsize=8, loc='upper right')
+        ax.set_xlabel("Zaman (μs)")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, linestyle='--', alpha=0.5)
+
+    _sy_sine_fit(axs[2, 1], sy, "$S_y$")
     axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     axs[2, 2].plot(t, sz, 'k-', lw=0.8)
@@ -291,7 +348,7 @@ def main():
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
-    axs[2, 3].axis('off')
+    _plot_fft(axs[2, 3], t_sec, sy, "S_y(t) FFT")
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)
