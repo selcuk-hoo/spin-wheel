@@ -317,19 +317,54 @@ def main():
                 
             A_guess = max(1e-6, (np.max(filt_ma) - np.min(filt_ma)) / 2.0)
             C_guess = np.mean(filt_ma)
-            bounds = ([0.0, 10.0, -np.pi, -1.0], [np.inf, 1000.0, np.pi, 1.0])
-            popt_ma, _ = curve_fit(sine_func, t_sec, filt_ma, p0=[A_guess, 110.0, 0.0, C_guess], bounds=bounds, maxfev=5000)
+            centered = filt_ma - C_guess
+            zero_crossings = np.where(np.diff(np.sign(centered)))[0]
             
-            print("-" * 50)
-            print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
-            print(f"-> Frekans : {abs(popt_ma[1]):.4f} Hz")
-            print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
-            print("-" * 50)
-            
-            ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
-            ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.3f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
-                    transform=ax.transAxes, fontsize=9, va='bottom',
-                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+            # Eğer 2'den az sıfır geçişi varsa (sinüs dalgasının sadece başlangıcıysa), doğrusal fit yap
+            if len(zero_crossings) < 2:
+                trim = int(len(filt_ma) * 0.1)
+                if trim > 0 and len(filt_ma) - 2 * trim > 10:
+                    ft = t_sec[trim:-trim]
+                    fs = filt_ma[trim:-trim]
+                else:
+                    ft = t_sec
+                    fs = filt_ma
+                
+                slope, intercept = np.polyfit(ft, fs, 1)
+                
+                print("-" * 50)
+                print("S_y DOĞRUSAL EĞRİ UYDURMA (KISA SİNYAL):")
+                print(f"-> Eğim (Trend): {slope:.4e} rad/s")
+                print("-" * 50)
+                
+                ax.plot(t, slope * t_sec + intercept, 'b--', lw=1.5, label='Doğrusal Fit')
+                ax.text(0.05, 0.05, f"Eğim: {slope:.3e} rad/s",
+                        transform=ax.transAxes, fontsize=9, va='bottom',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+            else:
+                # FFT ile frekans tahmini (birden fazla çevrimde fitin bozulmasını önlemek için)
+                N = len(filt_ma)
+                yf = np.fft.rfft(filt_ma - C_guess)
+                xf = np.fft.rfftfreq(N, dt)
+                idx_max = np.argmax(np.abs(yf))
+                f_guess = xf[idx_max]
+                
+                if f_guess < 1e-3:
+                    f_guess = 110.0 # Güvenli bir başlangıç noktası
+                
+                bounds = ([0.0, 1e-3, -np.inf, -np.inf], [np.inf, np.inf, np.inf, np.inf])
+                popt_ma, _ = curve_fit(sine_func, t_sec, filt_ma, p0=[A_guess, f_guess, 0.0, C_guess], bounds=bounds, maxfev=50000)
+                
+                print("-" * 50)
+                print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
+                print(f"-> Frekans : {abs(popt_ma[1]):.4f} Hz")
+                print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
+                print("-" * 50)
+                
+                ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
+                ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.3f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                        transform=ax.transAxes, fontsize=9, va='bottom',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
         except Exception as e:
             print(f"S_y fit hatası: {e}")
             _spin_panel(ax, signal, ylabel)

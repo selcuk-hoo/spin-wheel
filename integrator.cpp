@@ -206,6 +206,51 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         B[1] = 0.0;
         B[2] = B_quad_z;
     }
+
+    // =========================================================================
+    // SPACE CHARGE (BOŞLUK YÜKÜ) MODÜLÜ
+    // Düzgün dağılımlı (uniform) silindirik demet modeli
+    // =========================================================================
+    double N_particles   = field_params[27];
+    double beam_radius_a = field_params[28];
+    
+    if (N_particles > 0.0 && beam_radius_a > 0.0) {
+        double R0 = field_params[0];
+        double R = std::sqrt(r[0]*r[0] + r[1]*r[1]);
+        
+        // eps0 = 8.8541878128e-12 F/m -> 4 * pi^2 * eps0 = 3.49626017e-10
+        double K_sc = (N_particles * Q_E) / (3.49626017e-10 * R0 * beam_radius_a * beam_radius_a);
+        
+        // Yatay düzlemdeki sapma vektörü: Delta R = R_vec - R0_vec
+        // R_vec = X i + Y j
+        // R0_vec = R0 * (X/R) i + R0 * (Y/R) j
+        // E_sc_horiz = K_sc * Delta R
+        double E_sc_X = K_sc * (r[0] - R0 * r[0] / R);
+        double E_sc_Y = K_sc * (r[1] - R0 * r[1] / R);
+        double E_sc_Z = K_sc * r[2];
+        
+        E[0] += E_sc_X;
+        E[1] += E_sc_Y;
+        E[2] += E_sc_Z;
+        
+        // Manyetik alan: B_sc = (v_beam / c^2) x E_sc
+        // Demet hızı theta yönünde: v_beam = beta_magic * c * theta_hat
+        // theta_hat = (-Y/R, X/R, 0)
+        // v_beam = beta_magic * c * (-Y/R, X/R, 0)
+        // B_sc = (beta_magic / c) * (theta_hat x E_sc)
+        // theta_hat x E_sc = det|  i      j      k   |
+        //                        | -Y/R   X/R    0   |
+        //                        | E_X    E_Y    E_Z |
+        // = (X/R)*E_Z i - (-Y/R)*E_Z j + ((-Y/R)*E_Y - (X/R)*E_X) k
+        
+        double beta_magic_over_c = 1.9959777e-9;
+        double X_R = r[0] / R;
+        double Y_R = r[1] / R;
+        
+        B[0] += beta_magic_over_c * (X_R * E_sc_Z);
+        B[1] += beta_magic_over_c * (Y_R * E_sc_Z);
+        B[2] += beta_magic_over_c * (-Y_R * E_sc_Y - X_R * E_sc_X);
+    }
 }
 
 // Equations of motion — right-hand side of the ODE system.
@@ -497,8 +542,13 @@ void run_integration(double* y_init, const double* field_params,
             // The staging buffer is committed to cod_sum only at revolution end.
             // This guarantees cod_cnt[i] is uniform across all lattice positions,
             // so s=0 and s=circumference carry the same number of averaged turns.
-            if (past_first_rev) {
-                int idx = current_fodo * 8 + elem;
+            if (past_first_rev || (current_fodo == nFODO - 1 && elem == 0)) {
+                int target_fodo = current_fodo;
+                if (elem < start_elem) {
+                    target_fodo = (current_fodo + 1) % nFODO;
+                }
+                int idx = target_fodo * 8 + elem;
+                
                 double cod_x = 0.0;
                 if (elem == 0 || elem == 4) {
                     double R = std::sqrt(y_init[0]*y_init[0] + y_init[1]*y_init[1]);
@@ -508,6 +558,22 @@ void run_integration(double* y_init, const double* field_params,
                 }
                 stage_x[idx] = cod_x * 1000.0;  // mm (overwrite — one visit per rev)
                 stage_y[idx] = y_init[2] * 1000.0;
+
+                // Şimdi stage_x[0] güncellendi.
+                // stage_x[1..191] bu turun başından beri güncellendi.
+                // stage_x[0] ise tam şu an (turun sonu) güncellendi.
+                // Bunlar zaman içinde mükemmel sıralı! Hemen commit edelim.
+                if (idx == 0) {
+                    if (!past_first_rev) {
+                        past_first_rev = true; // İlk turun sonu, artık commit edebiliriz
+                    } else {
+                        for (int i = 0; i < n_lat; i++) {
+                            cod_x_sum[i] += stage_x[i];
+                            cod_y_sum[i] += stage_y[i];
+                            cod_cnt[i]++;
+                        }
+                    }
+                }
             }
 
             int type = 0;
@@ -521,8 +587,8 @@ void run_integration(double* y_init, const double* field_params,
             // ANA SİMÜLASYON DÖNGÜSÜ (run_integration)
             // Python (ctypes) tarafından tetiklenir.
             // ==============================================================================
-            double field_params_local[27];
-            for (int fp = 0; fp < 27; ++fp) field_params_local[fp] = field_params[fp];
+            double field_params_local[29];
+            for (int fp = 0; fp < 29; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
             // Dikey mis-alignment (B0hor ile oluşturulan quad offset'i)
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);
@@ -621,20 +687,6 @@ void run_integration(double* y_init, const double* field_params,
             }
         }
         total_fodo_cells++;
-
-        // Commit staged COD data only when a complete revolution just finished.
-        // Partial last revolution stays in stage_x/y and is simply discarded.
-        if (total_fodo_cells % nFODO == 0) {
-            if (!past_first_rev) {
-                past_first_rev = true;  // first revolution done; begin staging next
-            } else {
-                for (int i = 0; i < n_lat; i++) {
-                    cod_x_sum[i] += stage_x[i];
-                    cod_y_sum[i] += stage_y[i];
-                    cod_cnt[i]++;  // same increment for every lattice position
-                }
-            }
-        }
     }
 
     delete[] stage_x;

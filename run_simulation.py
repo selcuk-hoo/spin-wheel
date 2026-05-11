@@ -111,6 +111,8 @@ def main():
     alanlar.B0hor = float(config.get("B0hor", 0.0))
     alanlar.E0ver = float(config.get("E0ver", 0.0))
     alanlar.EDM_ETA = float(config.get("EDM_ETA", 1.88e-15))
+    alanlar.N_particles = float(config.get("N_particles", 0.0))
+    alanlar.beam_radius_a = float(config.get("beam_radius_a", 0.01))
     
     t0 = 0.0
     t_end = config.get("t2", 1e-5)

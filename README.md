@@ -47,9 +47,11 @@ elem=0   =1    =2    =3    =4    =5    =6    =7
 | Eleman | Tipi | Görevi |
 |--------|------|--------|
 | ARC1, ARC2 | Silindirik kapasitör | Parçacığı büküp halka boyunca taşır ve dikey elektrik alan (Spin-Wheel) uygular |
-| QF | Odaklayan quadrupol (G₁ > 0) | Radyal düzlemde odaklar |
+| QF | Odaklayan quadrupol (G₁ > 0) | Radyal düzlemde odaklar. (K-Modülasyon ve misalignment hataları desteklenir) |
 | QD | Ayrıştıran quadrupol (−G₁) | Dikey düzlemde odaklar |
 | DRIFT | Serbest yol | Saha yok, parçacık düz ilerler |
+
+> **Not:** Halkanın ilk FODO hücresinin (elem=0) girişinde, isteğe bağlı olarak parçacıklara uzunlamasına bir enerji değişimi uygulayan bir **RF Kovuğu (RF Cavity)** tanımlanabilmektedir.
 
 ### Betatron Tune
 FODO örgüsündeki odaklama gücü, parçacığın halkayı her dolaşımında kaç salınım yaptığını belirler:
@@ -111,8 +113,10 @@ Spin-Wheel metodunda hedef, `E0ver` ile tetiklenen yavaş dikey spin ($S_y$) pre
 
 **Sinyal İşleme Çözümü:**
 - **Hareketli Ortalama (Moving Average) Filtresi:** Veriye 0.1 ms pencere boyutuna sahip bir MA filtresi uygulanır. Bu filtre, betatron gürültülerini faz kaymasına (edge effect) yol açmadan mükemmel şekilde yutar.
-- **Non-Lineer Eğri Uydurma (Curve Fit):** Hızlı Fourier Dönüşümü (FFT), 10 ms gibi kısa simülasyon sürelerinde frekansları ayırmak için kör kalır ($\Delta f = 1/T = 100$ Hz). Bu yüzden kod, `scipy.optimize.curve_fit` kullanarak doğrudan zaman uzayında $f(t) = A \cdot \sin(2\pi f t + \phi) + C$ fonksiyonunu veriye oturtur.
-Bu sayede sadece 10 ms'lik bir simülasyon verisinden dahi Spin-Wheel frekansı %99.9 doğrulukla (örn: 111.56 Hz) terminale basılır!
+- **Dinamik Eğri Uydurma (Adaptive Curve Fit):** Sinyalin uzunluğuna göre kod otomatik olarak en doğru yöntemi seçer:
+  1. **Kısa Sinyaller (Sıfır geçişi < 2):** Eğer simülasyon çok kısaysa ve henüz tam bir sinüs dalgası oluşmamışsa, sinüse fit etmek hatalı sonuçlar verir. Bu durumda kod transient etkileri tıraşlar ve veriye en uygun **doğrusal doğruyu (linear fit)** oturtarak spin dönüşüm hızını (rad/s) bulur.
+  2. **Uzun Sinyaller (Sıfır geçişi $\ge$ 2):** Simülasyon birden fazla çevrim içeriyorsa, lokal minimum hatalarından kaçınmak için önce **Hızlı Fourier Dönüşümü (FFT)** ile baskın frekans tahmin edilir. Bu tahmin, `scipy.optimize.curve_fit` için başlangıç noktası olarak kullanılır ve zaman uzayında $f(t) = A \cdot \sin(2\pi f t + \phi) + C$ fonksiyonu veriye kusursuz şekilde oturtulur.
+Bu hibrit yapı sayesinde Spin-Wheel frekansı her simülasyon uzunluğu için en yüksek doğrulukla tespit edilir.
 
 ---
 
@@ -136,10 +140,33 @@ Sistem tamamen `params.json` üzerinden yönetilir:
 | `E0ver` | Spin-Wheel dikey elektrik alanı [V/m] | 1000.0 |
 | `EDM_ETA` | Proton EDM duyarlılık katsayısı $\eta$ | 1.88e-15 |
 | `poincare_quad_index`| Poincaré kesiti kayıt indeksi (−1 = her hücre) | −1 |
+| `rfSwitch` / `rfVoltage`| RF Kovuğu aç/kapat ve voltajı [V] | 0 / 1000000 |
+| `N_particles` | Demetteki toplam parçacık sayısı (Space Charge için) | 0e8 |
+| `beam_radius_a` | Demet yarıçapı [m] (Space Charge için) | 0.01 |
+| `B0hor` / `nFODO_off`| Hata analizi için yatay manyetik alan ve uygulanacağı quad | 0 / 8 |
+| `quadModA` / `quadModF` | Parametrik rezonans için Quadrupole modülasyon genliği ve frekansı | 0.0 / 10000.0 |
 
 ---
 
-## 10. Kurulum ve Çalıştırma
+## 10. Demet İçi Etkileşimler (Collective Effects)
+
+Gerçek bir depolama halkasında tek bir proton değil, milyarlarca protondan oluşan bir demet (bunch) döner. Bu protonların birbirleriyle etkileşimi, EDM sinyali üzerinde iki farklı ve kritik bozucu etki yaratır. Simülatör, bu makroskopik ve mikroskopik etkileri **Weak-Strong (Zayıf-Güçlü)** modelleme yaklaşımıyla analitik olarak çözebilecek altyapıya sahiptir:
+
+### 1. Boşluk Yükü (Space Charge) - Sistematik Hata (False EDM)
+Milyarlarca protonun oluşturduğu demet, pürüzsüz ve sürekli bir şarj bulutu gibi davranır. Test parçacığı bu bulutun içinde salınım yaparken dışarı doğru itici bir Coulomb kuvveti (Defocusing) hisseder.
+- **Tune Kayması:** İtici kuvvet, kuadrupollerin odaklama gücünü zayıflattığı için betatron salınım frekansı düşer ($\Delta Q_y < 0$).
+- **Sahte EDM Sinyali:** Eğer demetin merkezi ideal yörüngeden dikey olarak sapmışsa (örneğin hizalama hataları nedeniyle), test parçacığı asimetrik bir elektromanyetik alan hisseder. Thomas-BMT denklemine giren bu sürekli asimetrik radyal manyetik alan, dikey spini ($S_y$) yavaşça yukarı kaldırır. Bu durum, tamamen sahte bir EDM sinyali üretir (Systematic Error).
+- **Simülasyon Modeli:** Gauss yasası kullanılarak demetin makroskopik elektrik ve manyetik alanları analitik olarak hesaplanır ve dış alanların üzerine eklenerek Lorentz kuvvetine dahil edilir.
+
+### 2. Demet İçi Saçılma (IBS) - Faz Uyumsuzluğu (Spin Decoherence)
+Demetin içindeki protonların mikroskopik ölçekte birebir, rastgele Coulomb çarpışmaları yapmasıdır (Rutherford saçılması).
+- **Sihirli Momentumun Bozulması:** Çarpışmalar nedeniyle protonların enerjisi (momentumu) rastgele zıplamalarla değişir. Proton EDM deneyi tamamen $p \approx 0.701$ GeV/c "Sihirli Momentum" koşuluna bağlıdır. Momentumu sapan parçacıkların Thomas presesyonu artık sıfırlanmaz ve spin yatay düzlemde ($S_x, S_z$) çılgınca dönmeye başlar (g-2 precession).
+- **Sinyalin Yok Olması:** Trilyonlarca protonun spini farklı yönlere dağıldığı için toplam demet polarizasyonu (okunabilir sinyal) eriyip sıfıra iner. Buna **Spin Decoherence** denir. IBS sahte sinyal üretmez, var olan sinyali yok eder.
+- **Simülasyon Modeli:** IBS, Langevin stokastik diferansiyel denklemleri (Rastgele Yürüyüş) kullanılarak, parçacığın momentumuna her entegrasyon adımında rastgele bir difüzyon gürültüsü ($\Delta p$) eklenmesiyle modellenir. *(Not: IBS modülü henüz C++ motoruna tam entegre edilmemiştir, aktif geliştirme aşamasındadır.)*
+
+---
+
+## 11. Kurulum ve Çalıştırma
 
 ### Gereksinimler
 Sinyal işleme kütüphaneleri için Python `p39` environment'ının aktif olması önerilir:
