@@ -299,29 +299,29 @@ def main():
     # S_y için özel filtreleme ve sinüs eğri uydurma (Curve Fit) algoritması
     def _sy_sine_fit(ax, signal, ylabel):
         ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
-        
+
         try:
             from scipy.ndimage import uniform_filter1d
             from scipy.optimize import curve_fit
-            
+
             dt = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
-            
-            # Moving Average (Hareketli Ortalama) Filtresi (0.1 ms pencere ~ 10 kHz yutma)
+
+            # Moving Average — pencere süresi ~0.1 ms (10 kHz kesim)
             window_size = max(5, int(1e-4 / dt))
             filt_ma = uniform_filter1d(signal, size=window_size)
-            
+
             ax.plot(t, filt_ma, 'g-', lw=1.5, label='Moving Avg Filtreli', alpha=0.8)
-            
+
             # Sinüs modeli: f(t) = A * sin(2*pi*f*t + phi) + C
             def sine_func(t_val, A, f, phi, C):
                 return A * np.sin(2 * np.pi * f * t_val + phi) + C
-                
+
             A_guess = max(1e-6, (np.max(filt_ma) - np.min(filt_ma)) / 2.0)
             C_guess = np.mean(filt_ma)
             centered = filt_ma - C_guess
             zero_crossings = np.where(np.diff(np.sign(centered)))[0]
-            
-            # Eğer 2'den az sıfır geçişi varsa (sinüs dalgasının sadece başlangıcıysa), doğrusal fit yap
+
+            # 2'den az sıfır geçişi → doğrusal fit
             if len(zero_crossings) < 2:
                 trim = int(len(filt_ma) * 0.1)
                 if trim > 0 and len(filt_ma) - 2 * trim > 10:
@@ -330,55 +330,77 @@ def main():
                 else:
                     ft = t_sec
                     fs = filt_ma
-                
+
                 slope, intercept = np.polyfit(ft, fs, 1)
-                
+
                 print("-" * 50)
                 print("S_y DOĞRUSAL EĞRİ UYDURMA (KISA SİNYAL):")
                 print(f"-> Eğim (Trend): {slope:.4e} rad/s")
                 print("-" * 50)
-                
+
                 ax.plot(t, slope * t_sec + intercept, 'b--', lw=1.5, label='Doğrusal Fit')
                 ax.text(0.05, 0.05, f"Eğim: {slope:.3e} rad/s",
                         transform=ax.transAxes, fontsize=9, va='bottom',
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
             else:
-                # FFT ile frekans tahmini (birden fazla çevrimde fitin bozulmasını önlemek için)
-                N = len(filt_ma)
-                yf = np.fft.rfft(filt_ma - C_guess)
-                xf = np.fft.rfftfreq(N, dt)
-                idx_max = np.argmax(np.abs(yf))
-                f_guess = xf[idx_max]
-                
-                if f_guess < 1e-3:
-                    f_guess = 110.0 # Güvenli bir başlangıç noktası
-                
+                # --- Başlangıç frekans tahmini ---
+                # Eğer params.json'da base_spin_freq varsa onu kullan;
+                # sinyal kısa veya gürültülüyse FFT argmax yanlış frekansa (düşük
+                # frekanslı bir modülasyon/beat) kilitlenerek curve_fit'i saptırır.
+                if base_spin_freq > 0:
+                    f_guess = base_spin_freq
+                else:
+                    N = len(filt_ma)
+                    yf = np.fft.rfft(filt_ma - C_guess)
+                    xf = np.fft.rfftfreq(N, dt)
+                    # DC (indeks 0) atlanır; Nyquist'in çok üzerindeki indeksler
+                    # saçmadır — makul bir üst sınır belirle (örn. f_s/4)
+                    max_idx = max(1, N // 4)
+                    idx_max = np.argmax(np.abs(yf[1:max_idx])) + 1
+                    f_guess = xf[idx_max]
+                    if f_guess < 1e-3:
+                        f_guess = 110.0
+
                 bounds = ([0.0, 1e-3, -np.inf, -np.inf], [np.inf, np.inf, np.inf, np.inf])
-                popt_ma, _ = curve_fit(sine_func, t_sec, filt_ma, p0=[A_guess, f_guess, 0.0, C_guess], bounds=bounds, maxfev=50000)
-                
+                popt_ma, _ = curve_fit(
+                    sine_func, t_sec, filt_ma,
+                    p0=[A_guess, f_guess, 0.0, C_guess],
+                    bounds=bounds, maxfev=50000
+                )
+
+                f_measured = abs(popt_ma[1])
+                delta_f    = f_measured - base_spin_freq
+
                 print("-" * 50)
                 print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
                 if base_spin_freq != 0.0:
-                    print(f"-> Taban Frekans (Base) : {base_spin_freq:.16f} Hz")
-                    print(f"-> Gözlenen Delta f     : {abs(popt_ma[1]):.16f} Hz")
-                    # Since curve_fit finds positive frequency magnitude, the true total frequency could be base +/- delta
-                    # We print a simplistic sum, but user knows delta_f is the key value.
-                    print(f"-> Toplam (Tahmini)     : {abs(base_spin_freq) + abs(popt_ma[1]):.16f} Hz")
+                    print(f"-> Taban Frekans (Base)  : {base_spin_freq:.16f} Hz")
+                    print(f"-> Ölçülen Frekans       : {f_measured:.16f} Hz")
+                    print(f"-> Delta f (ölçülen-base): {delta_f:.16f} Hz")
                 else:
-                    print(f"-> Frekans : {abs(popt_ma[1]):.16f} Hz")
-                print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
+                    print(f"-> Ölçülen Frekans       : {f_measured:.16f} Hz")
+                print(f"-> Genlik                : {abs(popt_ma[0]):.4e}")
                 print("-" * 50)
-                
+
                 ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
-                
+
                 if base_spin_freq != 0.0:
-                    ax.text(0.05, 0.05, f"Taban Freq: {base_spin_freq:.10f} Hz\nDelta f: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
-                            transform=ax.transAxes, fontsize=9, va='bottom',
-                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-                else:
-                    ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                    ax.text(
+                        0.05, 0.05,
+                        f"Base: {base_spin_freq:.6f} Hz\n"
+                        f"Ölçülen: {f_measured:.6f} Hz\n"
+                        f"Δf: {delta_f:.6f} Hz\n"
+                        f"Genlik: {abs(popt_ma[0]):.3e}",
                         transform=ax.transAxes, fontsize=9, va='bottom',
-                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
+                    )
+                else:
+                    ax.text(
+                        0.05, 0.05,
+                        f"Ölçülen: {f_measured:.6f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                        transform=ax.transAxes, fontsize=9, va='bottom',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
+                    )
         except Exception as e:
             print(f"S_y fit hatası: {e}")
             _spin_panel(ax, signal, ylabel)
