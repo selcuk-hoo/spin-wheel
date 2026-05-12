@@ -13,32 +13,18 @@ def _p(*parts):
 
 
 def _estimate_tune(u, up, nFODO, poincare_quad_index):
-    """
-    Poincaré faz uzayı verilerinden (x-x' veya y-y') devir başına Betatron Tune (Q)
-    değerini tahmin eder.
-    
-    Yöntem: Faz açısındaki ilerlemeyi hesaplar (unwrap atan2). Eğer ölçüm noktası
-    özel bir Quadrupole değilse (poincare_quad_index < 0), her geçiş bir FODO hücresidir,
-    dolayısıyla nFODO ile çarpılarak tam tur başına Tune bulunur.
-    """
     uc  = u  - u.mean()
     upc = up - up.mean()
     if np.std(uc) < 1e-12 or np.std(upc) < 1e-12:
         return None
     dphi     = np.diff(np.unwrap(np.arctan2(upc, uc)))
     avg_dphi = abs(np.mean(dphi))
-    # When poincare_quad_index < 0 each sample is 1/nFODO of a revolution
     if poincare_quad_index < 0:
         return nFODO * avg_dphi / (2.0 * np.pi)
     return avg_dphi / (2.0 * np.pi)
 
 
 def _load_cod(n_per_turn):
-    """
-    run_simulation.py tarafından üretilen 'cod_data.txt' dosyasını okur.
-    Kapalı Yörünge (Closed Orbit Distortion - COD) verilerini (s_m, x_mm, y_mm) 
-    döndürür. Kapalı yörünge, halkanın referans yörüngesinden sapmaları ifade eder.
-    """
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -51,12 +37,10 @@ def _load_cod(n_per_turn):
     except (ValueError, OSError):
         return None, None, None
     print(f"[COD: {len(cd)} örgü elemanı okundu]")
-    # cod_data.txt stores x/y in mm.
     return cd[:, 0], cd[:, 1], cd[:, 2]
 
 
 def _save_rf_plot(params):
-    """Save RF phase-space diagram to rf.png (only if rf.txt exists)."""
     rf_path = _p("rf.txt")
     if not os.path.exists(rf_path):
         return
@@ -94,15 +78,6 @@ def _save_rf_plot(params):
 
 
 def main():
-    """
-    Ana görselleştirme rutini. 'simulation_data.txt', 'cod_data.txt' ve 
-    'poincare_data.txt' dosyalarını analiz ederek 3x4'lük devasa bir 
-    analiz paneli çizer. İçeriği:
-    - Orbit ve Faz Uzayı (Emitans hesaplamaları)
-    - Kapalı Yörünge Bozulması (COD) ve RMS analizi
-    - FFT ile frekans spektrumu
-    - Spin komponentleri (Sx, Sy, Sz) ve Savitzky-Golay ile eğim (trend) hesabı
-    """
     sim_path = _p("simulation_data.txt")
     if not os.path.exists(sim_path):
         print("HATA: 'simulation_data.txt' bulunamadı.")
@@ -119,16 +94,16 @@ def main():
 
     with open(_p("params.json"), "r") as f:
         params = json.load(f)
-    R0       = params.get("R0", 95.49)
-    nFODO    = params.get("nFODO", 24)
-    quadLen  = params.get("quadLen", 0.4)
-    driftLen = params.get("driftLen", 2.0833)
-    pq_idx   = params.get("poincare_quad_index", -1)
+    R0             = params.get("R0", 95.49)
+    nFODO          = params.get("nFODO", 24)
+    quadLen        = params.get("quadLen", 0.4)
+    driftLen       = params.get("driftLen", 2.0833)
+    pq_idx         = params.get("poincare_quad_index", -1)
     base_spin_freq = params.get("base_spin_freq", 0.0)
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
-    n_per_turn    = nFODO * 8  # element entries recorded per revolution
+    n_per_turn    = nFODO * 8
 
     # ---- Poincaré data & tune estimation ----
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
@@ -147,7 +122,6 @@ def main():
                 yp_pc = (pc_data[:, 4] / pz_pc) * 1000
                 Qx = _estimate_tune(x_pc, xp_pc, nFODO, pq_idx)
                 Qy = _estimate_tune(y_pc, yp_pc, nFODO, pq_idx)
-
                 if Qx is not None and Qy is not None:
                     print(f"[Tune: Qx={Qx:.4f}  Qy={Qy:.4f}]")
         except (ValueError, OSError):
@@ -189,10 +163,9 @@ def main():
     if cod_s is not None:
         lbl = f"Qx={Qx:.3f}" if Qx is not None else "tur ort."
         axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5, label=lbl)
-        rms_x   = np.sqrt(np.mean(cod_x**2))
-        sum_x   = np.sum(cod_x)
+        rms_x = np.sqrt(np.mean(cod_x**2))
         axs[0, 1].text(0.97, 0.97,
-                       f"RMS = {rms_x*1e3:.2f} μm\nTop = {sum_x*1e3:.2f} μm",
+                       f"RMS = {rms_x*1e3:.2f} μm\nTop = {np.sum(cod_x)*1e3:.2f} μm",
                        transform=axs[0, 1].transAxes, fontsize=8, va='top', ha='right',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[0, 1].legend(fontsize=8)
@@ -234,10 +207,9 @@ def main():
     if cod_s is not None:
         lbl = f"Qy={Qy:.3f}" if Qy is not None else "tur ort."
         axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5, label=lbl)
-        rms_y   = np.sqrt(np.mean(cod_y**2))
-        sum_y   = np.sum(cod_y)
+        rms_y = np.sqrt(np.mean(cod_y**2))
         axs[1, 1].text(0.97, 0.97,
-                       f"RMS = {rms_y*1e3:.2f} μm\nTop = {sum_y*1e3:.2f} μm",
+                       f"RMS = {rms_y*1e3:.2f} μm\nTop = {np.sum(cod_y)*1e3:.2f} μm",
                        transform=axs[1, 1].transAxes, fontsize=8, va='top', ha='right',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[1, 1].legend(fontsize=8)
@@ -296,91 +268,89 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    # S_y için özel filtreleme ve sinüs eğri uydurma (Curve Fit) algoritması
-    def _sy_sine_fit(ax, signal, ylabel):
+    def _sy_demod_fit(ax, signal, ylabel):
+        """
+        S_y frekansını IQ demodülasyonu ile ölçer.
+
+        Fikir: signal(t) = A·sin(2π·f_m·t + φ),  f_m = f_base + Δf
+
+          I(t) = signal × cos(2π·f_base·t)  --LPF-->  (A/2)·sin(2π·Δf·t + φ)
+          Q(t) = signal × sin(2π·f_base·t)  --LPF-->  (A/2)·cos(2π·Δf·t + φ)
+
+          ψ(t) = unwrap(arctan2(I, Q)) = 2π·Δf·t + φ0
+          Δf   = polyfit(t, ψ)[0] / (2π)
+
+        LPF penceresi tam bir f_base periyoduna eşitleniyor:
+        2·f_base bileşeni sinc filtresinin birinci sıfırına düşer → mükemmel ret.
+        Δf (neredeyse sıfır) filtreden geçer.
+        """
         ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
-        
+
+        if base_spin_freq <= 0:
+            # base_spin_freq yoksa doğrudan eğim analizi
+            _spin_panel(ax, signal, ylabel)
+            return
+
         try:
             from scipy.ndimage import uniform_filter1d
-            from scipy.optimize import curve_fit
-            
+
             dt = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
-            
-            # Moving Average (Hareketli Ortalama) Filtresi (0.1 ms pencere ~ 10 kHz yutma)
-            window_size = max(5, int(1e-4 / dt))
-            filt_ma = uniform_filter1d(signal, size=window_size)
-            
-            ax.plot(t, filt_ma, 'g-', lw=1.5, label='Moving Avg Filtreli', alpha=0.8)
-            
-            # Sinüs modeli: f(t) = A * sin(2*pi*f*t + phi) + C
-            def sine_func(t_val, A, f, phi, C):
-                return A * np.sin(2 * np.pi * f * t_val + phi) + C
-                
-            A_guess = max(1e-6, (np.max(filt_ma) - np.min(filt_ma)) / 2.0)
-            C_guess = np.mean(filt_ma)
-            centered = filt_ma - C_guess
-            zero_crossings = np.where(np.diff(np.sign(centered)))[0]
-            
-            # Eğer 2'den az sıfır geçişi varsa (sinüs dalgasının sadece başlangıcıysa), doğrusal fit yap
-            if len(zero_crossings) < 2:
-                trim = int(len(filt_ma) * 0.1)
-                if trim > 0 and len(filt_ma) - 2 * trim > 10:
-                    ft = t_sec[trim:-trim]
-                    fs = filt_ma[trim:-trim]
-                else:
-                    ft = t_sec
-                    fs = filt_ma
-                
-                slope, intercept = np.polyfit(ft, fs, 1)
-                
-                print("-" * 50)
-                print("S_y DOĞRUSAL EĞRİ UYDURMA (KISA SİNYAL):")
-                print(f"-> Eğim (Trend): {slope:.4e} rad/s")
-                print("-" * 50)
-                
-                ax.plot(t, slope * t_sec + intercept, 'b--', lw=1.5, label='Doğrusal Fit')
-                ax.text(0.05, 0.05, f"Eğim: {slope:.3e} rad/s",
-                        transform=ax.transAxes, fontsize=9, va='bottom',
-                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-            else:
-                # FFT ile frekans tahmini (birden fazla çevrimde fitin bozulmasını önlemek için)
-                N = len(filt_ma)
-                yf = np.fft.rfft(filt_ma - C_guess)
-                xf = np.fft.rfftfreq(N, dt)
-                idx_max = np.argmax(np.abs(yf))
-                f_guess = xf[idx_max]
-                
-                if f_guess < 1e-3:
-                    f_guess = 110.0 # Güvenli bir başlangıç noktası
-                
-                bounds = ([0.0, 1e-3, -np.inf, -np.inf], [np.inf, np.inf, np.inf, np.inf])
-                popt_ma, _ = curve_fit(sine_func, t_sec, filt_ma, p0=[A_guess, f_guess, 0.0, C_guess], bounds=bounds, maxfev=50000)
-                
-                print("-" * 50)
-                print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
-                if base_spin_freq != 0.0:
-                    print(f"-> Taban Frekans (Base) : {base_spin_freq:.16f} Hz")
-                    print(f"-> Gözlenen Delta f     : {abs(popt_ma[1]):.16f} Hz")
-                    # Since curve_fit finds positive frequency magnitude, the true total frequency could be base +/- delta
-                    # We print a simplistic sum, but user knows delta_f is the key value.
-                    print(f"-> Toplam (Tahmini)     : {abs(base_spin_freq) + abs(popt_ma[1]):.16f} Hz")
-                else:
-                    print(f"-> Frekans : {abs(popt_ma[1]):.16f} Hz")
-                print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
-                print("-" * 50)
-                
-                ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
-                
-                if base_spin_freq != 0.0:
-                    ax.text(0.05, 0.05, f"Taban Freq: {base_spin_freq:.10f} Hz\nDelta f: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
-                            transform=ax.transAxes, fontsize=9, va='bottom',
-                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
-                else:
-                    ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
-                        transform=ax.transAxes, fontsize=9, va='bottom',
-                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+
+            # Referans sinyaller
+            ref_cos = np.cos(2 * np.pi * base_spin_freq * t_sec)
+            ref_sin = np.sin(2 * np.pi * base_spin_freq * t_sec)
+
+            # Karıştırma (mixing)
+            I_raw = signal * ref_cos
+            Q_raw = signal * ref_sin
+
+            # Alçak geçiren filtre (LPF)
+            # Pencere = 1 periyot:  2·f_base bileşeni sinc'in birinci sıfırına düşer.
+            win_lp = max(5, int(round(1.0 / (base_spin_freq * dt))))
+            I_filt = uniform_filter1d(I_raw, size=win_lp)
+            Q_filt = uniform_filter1d(Q_raw, size=win_lp)
+
+            # Kenar efektlerini at
+            trim = win_lp
+            if len(I_filt) - 2 * trim < 10:
+                trim = max(1, len(I_filt) // 10)
+            t_trim = t_sec[trim:-trim]
+            I_trim = I_filt[trim:-trim]
+            Q_trim = Q_filt[trim:-trim]
+
+            # Anlık faz → eğim = 2π·Δf
+            phase = np.unwrap(np.arctan2(I_trim, Q_trim))
+            slope, _ = np.polyfit(t_trim, phase, 1)
+            delta_f    = slope / (2 * np.pi)
+            amplitude  = 2 * np.mean(np.sqrt(I_trim**2 + Q_trim**2))
+            f_measured = base_spin_freq + delta_f
+
+            print("-" * 50)
+            print("S_y IQ DEMODÜLASYONU (Δf = ölçülen − base):")
+            print(f"-> Taban Frekans (Base)  : {base_spin_freq:.16f} Hz")
+            print(f"-> Ölçülen Frekans       : {f_measured:.16f} Hz")
+            print(f"-> Δf (ölçülen − base)   : {delta_f:+.16f} Hz")
+            print(f"-> Genlik                : {amplitude:.4e}")
+            print("-" * 50)
+
+            # I bileşenini normalize ederek zemin sinyal üzerine çiz
+            scale = np.max(np.abs(signal)) * 0.9
+            amp_iq = np.max(np.abs(I_trim)) if np.max(np.abs(I_trim)) > 0 else 1.0
+            ax.plot(t[trim:-trim], I_trim / amp_iq * scale,
+                    'g-', lw=1.5, label='I(t) demodüle', alpha=0.8)
+
+            ax.text(
+                0.05, 0.05,
+                f"Base    : {base_spin_freq:.10f} Hz\n"
+                f"Ölçülen : {f_measured:.10f} Hz\n"
+                f"Δf      : {delta_f:+.10f} Hz\n"
+                f"Genlik  : {amplitude:.3e}",
+                transform=ax.transAxes, fontsize=9, va='bottom',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.9)
+            )
+
         except Exception as e:
-            print(f"S_y fit hatası: {e}")
+            print(f"S_y IQ fit hatası: {e}")
             _spin_panel(ax, signal, ylabel)
             return
 
@@ -389,7 +359,7 @@ def main():
         ax.set_ylabel(ylabel)
         ax.grid(True, linestyle='--', alpha=0.5)
 
-    _sy_sine_fit(axs[2, 1], sy, "$S_y$")
+    _sy_demod_fit(axs[2, 1], sy, "$S_y$")
     axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     axs[2, 2].plot(t, sz, 'k-', lw=0.8)
