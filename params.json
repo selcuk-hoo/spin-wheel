@@ -1,4 +1,5 @@
 {
+    "base_spin_freq": 1115.7400768459,
     "R0": 95.49,
     "direction": -1,
     "spinHorRotation": 0.0,
@@ -24,7 +25,7 @@
     "rfVoltage": 1000000,
     "h": 100,
     "EDMSwitch": 0,
-    "EDM_ETA": 0.88e-15,
+    "EDM_ETA": 1.88e-13,
     "N_particles": 0e7,
     "beam_radius_a": 0.01,
     "E0_power": 1,

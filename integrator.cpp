@@ -316,6 +316,16 @@ void compute_rhs(double t, const double* y, const double* field_params, int elem
             edm_term = (beta_cross_B[i] + E[i]/C_LIGHT
                         - beta[i]*beta_dot_E * gamma/(gamma+1.0)/C_LIGHT) * 0.5 * EDM_ETA;
         Omega[i] = -(mdm_term + edm_term) * (Q_E / M_P);
+    // Rotating Frame (Analitik Dönen Sistem) Uygulaması
+    // Spin-Wheel metodu dikey elektrik alan (E0ver) kullandığı için
+    // kapalı yörünge yukarı kayar ve quadrupollerdeki radyal manyetik alan (Bx)
+    // spinin LOKAL RADYAL EKSEN etrafında dönmesine sebep olur.
+    double base_spin_freq = field_params[29];
+    if (base_spin_freq != 0.0) {
+        double Omega_base = 2.0 * M_PI * base_spin_freq;
+        double theta_p = std::atan2(y[1], y[0]);
+        Omega[0] -= Omega_base * std::cos(theta_p);
+        Omega[1] -= Omega_base * std::sin(theta_p);
     }
 
     double dsdt[3];
@@ -589,8 +599,8 @@ void run_integration(double* y_init, const double* field_params,
             // ANA SİMÜLASYON DÖNGÜSÜ (run_integration)
             // Python (ctypes) tarafından tetiklenir.
             // ==============================================================================
-            double field_params_local[29];
-            for (int fp = 0; fp < 29; ++fp) field_params_local[fp] = field_params[fp];
+            double field_params_local[30];
+            for (int fp = 0; fp < 30; ++fp) field_params_local[fp] = field_params[fp];
             field_params_local[23] = 0.0;
             // Dikey mis-alignment (B0hor ile oluşturulan quad offset'i)
             bool is_target_first_quad = (elem == 2) && (nFODO_off >= 0) && (current_fodo == nFODO_off);

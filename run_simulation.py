@@ -113,6 +113,7 @@ def main():
     alanlar.EDM_ETA = float(config.get("EDM_ETA", 1.88e-15))
     alanlar.N_particles = float(config.get("N_particles", 0.0))
     alanlar.beam_radius_a = float(config.get("beam_radius_a", 0.01))
+    alanlar.base_spin_freq = float(config.get("base_spin_freq", 0.0))
     
     t0 = 0.0
     t_end = config.get("t2", 1e-5)
@@ -129,6 +130,8 @@ def main():
     print(f"FODO Hücre Sayısı : {alanlar.nFODO}")
     print(f"Quadrupole (K1)   : {alanlar.quadK1}")
     print(f"Sextupole (S1)    : {alanlar.sextK1}")
+    if alanlar.base_spin_freq != 0.0:
+        print(f"Taban Spin Frekansı: {alanlar.base_spin_freq:.10f} Hz (Dönen Referans Sistemi)")
     print("==========================================================\n")
     print(f"Simülasyon motoru çalışıyor (Toplam Adım: {adim_sayisi:,})")
     start_time = time.time()

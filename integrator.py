@@ -78,6 +78,7 @@ class FieldParams:
         self.EDM_ETA = 1.88e-15
         self.N_particles = 1e8
         self.beam_radius_a = 0.01
+        self.base_spin_freq = 0.0
     def to_c_array(self):
         """
         Sınıf içindeki tüm parametreleri, C++ fonksiyonuna gönderilebilecek
@@ -94,7 +95,8 @@ class FieldParams:
             self.rfSwitch, self.rfVoltage, self.h, self.driftLen,
             self.quadModA, self.quadModF, self.nFODO_off,
             self.B0hor, self.quadYOffset, self.quadK0, self.E0ver,
-            self.EDM_ETA, self.N_particles, self.beam_radius_a
+            self.EDM_ETA, self.N_particles, self.beam_radius_a,
+            self.base_spin_freq
         ]
         return (ctypes.c_double * len(params))(*params)
 

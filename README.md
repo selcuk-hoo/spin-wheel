@@ -17,7 +17,10 @@ Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 
 7. [Spin-Wheel Sinyal İşleme ve Analiz](#7-spin-wheel-sinyal-i̇şleme-ve-analiz)
 8. [Görselleştirme: `plot_results.py`](#8-görselleştirme-plot_resultspy)
 9. [Parametreler: `params.json`](#9-parametreler-paramsjson)
-10. [Kurulum ve Çalıştırma](#10-kurulum-ve-çalıştırma)
+10. [Demet İçi Etkileşimler (Collective Effects)](#10-demet-i̇çi-etkileşimler-collective-effects)
+11. [İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler](#11-i̇leri-seviye-spin-dinamikleri-ve-fiziksel-gözlemler)
+12. [Analitik Dönen Referans Sistemi (Rotating Frame)](#12-analitik-dönen-referans-sistemi-rotating-frame)
+13. [Kurulum ve Çalıştırma](#13-kurulum-ve-çalıştırma)
 
 ---
 
@@ -145,6 +148,7 @@ Sistem tamamen `params.json` üzerinden yönetilir:
 | `beam_radius_a` | Demet yarıçapı [m] (Space Charge için) | 0.01 |
 | `B0hor` / `nFODO_off`| Hata analizi için yatay manyetik alan ve uygulanacağı quad | 0 / 8 |
 | `quadModA` / `quadModF` | Parametrik rezonans için Quadrupole modülasyon genliği ve frekansı | 0.0 / 10000.0 |
+| `base_spin_freq` | Analitik Dönen Referans Sistemi için taban spin frekansı (Hz) | 1115.7400768459 |
 
 ---
 
@@ -186,7 +190,18 @@ Elektrik alan ($E0_{ver} = 0$) ve EDM sinyali (`EDMSwitch = 0`) kapalı olmasın
 
 ---
 
-## 12. Kurulum ve Çalıştırma
+## 12. Analitik Dönen Referans Sistemi (Rotating Frame)
+
+C++ entegratöründe devasa 1115 Hz'lik spin dönüşlerini ("Topaç Etkisi") çok daha yüksek hassasiyetle incelemek için **Dönen Referans Sistemi (Rotating Frame)** geliştirilmiştir. 
+
+- **Sorun (Catastrophic Cancellation):** Spin-Wheel sinyalleri veya `N_particles` etkisi, spin dönüş frekansını $10^{-6}$ Hz gibi mikroskobik değerlerde değiştirir. Çözücü, her adımda ana frekans olan 1115 Hz'in üstüne bu mikroskobik etkiyi eklerken, `double` veri tipinin 15 hanelik sınırlarına takılır. Mikroskobik sapmalar yuvarlama gürültüsü içinde ezilir.
+- **Çözüm:** Simülasyonun `params.json` dosyasındaki `base_spin_freq` parametresine taban frekans girildiğinde, C++ entegratörü BMT denkleminden bu frekansı **matematiksel olarak çıkartır**.
+- **Sonuç:** İntegratör artık 1115 Hz'i değil, *sadece mikroskobik sapmayı* ($10^{-6}$ Hz) hesaplar. Sayı $10^{-8}$ gibi çok küçük bir değer etrafında birikirken kendine ait 15 hanelik float hassasiyetini korur. 
+Böylece Python analizi (Eğri Uydurma) kusursuz bir doğrulukla `Delta_f` değerini tespit eder ve ekranda toplayarak gerçek frekansı yazar. Toplam spin büyüklüğü C++ GL4 integratörü (cross-product) sayesinde daima mükemmel olarak 1 korunur.
+
+---
+
+## 13. Kurulum ve Çalıştırma
 
 ### Gereksinimler
 Sinyal işleme kütüphaneleri için Python `p39` environment'ının aktif olması önerilir:

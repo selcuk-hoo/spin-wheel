@@ -124,6 +124,7 @@ def main():
     quadLen  = params.get("quadLen", 0.4)
     driftLen = params.get("driftLen", 2.0833)
     pq_idx   = params.get("poincare_quad_index", -1)
+    base_spin_freq = params.get("base_spin_freq", 0.0)
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
@@ -357,12 +358,25 @@ def main():
                 
                 print("-" * 50)
                 print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
-                print(f"-> Frekans : {abs(popt_ma[1]):.10f} Hz")
+                if base_spin_freq != 0.0:
+                    print(f"-> Taban Frekans (Base) : {base_spin_freq:.16f} Hz")
+                    print(f"-> Gözlenen Delta f     : {abs(popt_ma[1]):.16f} Hz")
+                    # Since curve_fit finds positive frequency magnitude, the true total frequency could be base +/- delta
+                    # We print a simplistic sum, but user knows delta_f is the key value.
+                    print(f"-> Toplam (Tahmini)     : {abs(base_spin_freq) + abs(popt_ma[1]):.16f} Hz")
+                else:
+                    print(f"-> Frekans : {abs(popt_ma[1]):.16f} Hz")
                 print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
                 print("-" * 50)
                 
                 ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
-                ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.10f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                
+                if base_spin_freq != 0.0:
+                    ax.text(0.05, 0.05, f"Taban Freq: {base_spin_freq:.10f} Hz\nDelta f: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                            transform=ax.transAxes, fontsize=9, va='bottom',
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
+                else:
+                    ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.16f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
                         transform=ax.transAxes, fontsize=9, va='bottom',
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
         except Exception as e:
