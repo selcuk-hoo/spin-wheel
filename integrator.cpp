@@ -221,35 +221,37 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         // eps0 = 8.8541878128e-12 F/m -> 4 * pi^2 * eps0 = 3.49626017e-10
         double K_sc = (N_particles * Q_E) / (3.49626017e-10 * R0 * beam_radius_a * beam_radius_a);
         
-        // Yatay düzlemdeki sapma vektörü: Delta R = R_vec - R0_vec
-        // R_vec = X i + Y j
-        // R0_vec = R0 * (X/R) i + R0 * (Y/R) j
-        // E_sc_horiz = K_sc * Delta R
-        double E_sc_X = K_sc * (r[0] - R0 * r[0] / R);
-        double E_sc_Y = K_sc * (r[1] - R0 * r[1] / R);
-        double E_sc_Z = K_sc * r[2];
+        double E_sc_X = 0.0, E_sc_Y = 0.0, E_sc_Z = 0.0;
+        double B_sc_X = 0.0, B_sc_Y = 0.0, B_sc_Z = 0.0;
+        double beta_magic_over_c = 1.9959777e-9;
+        
+        if (element_type == 0) { // ARC (Kavisli yörünge)
+            E_sc_X = K_sc * (r[0] - R0 * r[0] / R);
+            E_sc_Y = K_sc * (r[1] - R0 * r[1] / R);
+            E_sc_Z = K_sc * r[2];
+            
+            double X_R = r[0] / R;
+            double Y_R = r[1] / R;
+            B_sc_X = beta_magic_over_c * (X_R * E_sc_Z);
+            B_sc_Y = beta_magic_over_c * (Y_R * E_sc_Z);
+            B_sc_Z = beta_magic_over_c * (-Y_R * E_sc_Y - X_R * E_sc_X);
+        } else { // STRAIGHT SECTIONS (Düz yörünge: Drift, Quadrupoles)
+            E_sc_X = K_sc * (r[0] - R0);
+            E_sc_Y = 0.0;
+            E_sc_Z = K_sc * r[2];
+            
+            B_sc_X = beta_magic_over_c * E_sc_Z;
+            B_sc_Y = 0.0;
+            B_sc_Z = -beta_magic_over_c * E_sc_X;
+        }
         
         E[0] += E_sc_X;
         E[1] += E_sc_Y;
         E[2] += E_sc_Z;
         
-        // Manyetik alan: B_sc = (v_beam / c^2) x E_sc
-        // Demet hızı theta yönünde: v_beam = beta_magic * c * theta_hat
-        // theta_hat = (-Y/R, X/R, 0)
-        // v_beam = beta_magic * c * (-Y/R, X/R, 0)
-        // B_sc = (beta_magic / c) * (theta_hat x E_sc)
-        // theta_hat x E_sc = det|  i      j      k   |
-        //                        | -Y/R   X/R    0   |
-        //                        | E_X    E_Y    E_Z |
-        // = (X/R)*E_Z i - (-Y/R)*E_Z j + ((-Y/R)*E_Y - (X/R)*E_X) k
-        
-        double beta_magic_over_c = 1.9959777e-9;
-        double X_R = r[0] / R;
-        double Y_R = r[1] / R;
-        
-        B[0] += beta_magic_over_c * (X_R * E_sc_Z);
-        B[1] += beta_magic_over_c * (Y_R * E_sc_Z);
-        B[2] += beta_magic_over_c * (-Y_R * E_sc_Y - X_R * E_sc_X);
+        B[0] += B_sc_X;
+        B[1] += B_sc_Y;
+        B[2] += B_sc_Z;
     }
 }
 

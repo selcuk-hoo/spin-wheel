@@ -357,12 +357,12 @@ def main():
                 
                 print("-" * 50)
                 print("S_y SİNÜS EĞRİ UYDURMA (HAREKETLİ ORTALAMA):")
-                print(f"-> Frekans : {abs(popt_ma[1]):.4f} Hz")
+                print(f"-> Frekans : {abs(popt_ma[1]):.10f} Hz")
                 print(f"-> Genlik  : {abs(popt_ma[0]):.4e}")
                 print("-" * 50)
                 
                 ax.plot(t, sine_func(t_sec, *popt_ma), 'b--', lw=1.5, label='Sinüs Fit')
-                ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.3f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
+                ax.text(0.05, 0.05, f"Frekans: {abs(popt_ma[1]):.10f} Hz\nGenlik: {abs(popt_ma[0]):.3e}",
                         transform=ax.transAxes, fontsize=9, va='bottom',
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
         except Exception as e:
