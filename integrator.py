@@ -79,10 +79,16 @@ class FieldParams:
         self.N_particles = 1e8
         self.beam_radius_a = 0.01
         self.base_spin_freq = 0.0
+
     def to_c_array(self):
         """
         Sınıf içindeki tüm parametreleri, C++ fonksiyonuna gönderilebilecek
         formatta (`ctypes.c_double` array) ardışık bir diziye dönüştürür.
+
+        NOT: field_params[29] (C++ dönen çerçeve frekansı) her zaman 0.0
+        olarak gönderilir. Dönen çerçeve transformasyonu Python tarafında
+        IQ demodülasyonu ile yapılır (geometrik bug nedeniyle C++ versiyonu
+        devre dışı).
         """
         params = [
             self.R0, self.E0, self.E0_power,
@@ -96,10 +102,8 @@ class FieldParams:
             self.quadModA, self.quadModF, self.nFODO_off,
             self.B0hor, self.quadYOffset, self.quadK0, self.E0ver,
             self.EDM_ETA, self.N_particles, self.beam_radius_a,
-            self.base_spin_freq
+            0.0,  # field_params[29]: C++ dönen çerçeve kapalı
         ]
-        return (ctypes.c_double * len(params))(*params)
-
         return (ctypes.c_double * len(params))(*params)
 
 # ==============================================================================
@@ -139,8 +143,6 @@ def convert_global_to_local_matrix(history_global_np, R0, initial_z):
     history_local[:, 7] = Sz_c
     history_local[:, 8] = Sy_c
     
-    return history_local
-
     return history_local
 
 # ==============================================================================
