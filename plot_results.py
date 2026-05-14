@@ -274,18 +274,19 @@ def main():
 
         S_Dikey = -sin(Omega*t)  (dikey spin, sütun 8)
         S_Long  = -cos(Omega*t)  (boylamsal spin, sütun 9)
-        z(t) = S_Long + j*S_Dikey = -exp(j*Omega*t)
+        z(t) = S_Long + j*S_Dikey = -exp(j*Omega*t),   |z| = 1
 
-        Bu fazör tam çember çiziyor (|z|=1), sadece referans frekansında
-        dönüyor. IQ demodülas-yonu için LPF gereksiz — karmasık çarpma
-        toplam frekansını tamamen yokeder.
+        Faz, transform/filtre olmadan dogrudan cikar -> KENAR ETKiSi YOK.
+        Bu yuzden TUM kayit kullanilir (kirpma yok); kirpma sadece
+        modulasyon kaynakli pencere-bagimli yanlilik katar.
 
-        Yöntem B (doğrudan):
-          phase = unwrap(angle(z))  ->  slope = 2*pi*f  ->  f_direct
+          f = egim(unwrap(angle(z))) / (2*pi)
 
-        Yöntem A (IQ, hassas):
-          zd = z * exp(-j*2*pi*f_base*t)  ->  angle(zd) = 2*pi*Df*t
-          f_measured = f_base + Df
+        ONEMLi: "IQ demod (f_base cikararak)" ile "dogrudan faz" bu kayit
+        boyunda matematiksel olarak AYNI sonucu verir (float64 ikisini
+        ayirt edemez); dolayisiyla bu bir capraz-kontrol DEGiLDiR.
+        Gercek capraz-kontrol: kaydin ilk/ikinci yarisini ayri fit etmek
+        -> fark, fazdaki periyodik modulasyonun olcum belirsizligini verir.
         """
         ax.plot(t, s_dikey, 'k-', lw=0.8, alpha=0.4, label='S_Dikey (ham)')
 
@@ -314,51 +315,58 @@ def main():
             ax.grid(True, linestyle='--', alpha=0.5)
             return
 
-        # %2 kirpma (kenar transiyenti)
-        trim = max(10, len(z) // 50)
-        t_t  = t_sec[trim:-trim]
-        z_t  = z[trim:-trim]
+        # Kenar etkisi olmadigi icin TUM kayit kullanilir (kirpma yok)
+        phase = np.unwrap(np.angle(z))
 
-        # ---- Yontem B: dogrudan fazor fazi ----
-        phase_b    = np.unwrap(np.angle(z_t))
-        slope_b, _ = np.polyfit(t_t, phase_b, 1)
-        f_direct   = slope_b / (2 * np.pi)
+        # --- Tam kayit dogrusal fit ---
+        coef     = np.polyfit(t_sec, phase, 1)
+        slope    = coef[0]
+        f_meas   = slope / (2 * np.pi)
+        delta_f  = f_meas - base_spin_freq
 
-        # ---- Yontem A: karmasik IQ (LPF gereksiz) ----
-        zd         = z_t * np.exp(-2j * np.pi * base_spin_freq * t_t)
-        phase_a    = np.unwrap(np.angle(zd))
-        slope_a, _ = np.polyfit(t_t, phase_a, 1)
-        delta_f    = slope_a / (2 * np.pi)
-        f_iq       = base_spin_freq + delta_f
+        # --- Fit kalitesi: dogrusaldan kalan (modulasyon) ---
+        resid     = phase - np.polyval(coef, t_sec)
+        rms_resid = np.std(resid)
+
+        # --- Gercek capraz-kontrol: ilk yari / ikinci yari ---
+        n_h = len(t_sec) // 2
+        f_h1 = np.polyfit(t_sec[:n_h], phase[:n_h], 1)[0] / (2 * np.pi)
+        f_h2 = np.polyfit(t_sec[n_h:], phase[n_h:], 1)[0] / (2 * np.pi)
+        split_diff = f_h2 - f_h1
 
         print("-" * 56)
-        print("SPIN-WHEEL FREKANS ANALiZi (kompleks fazor)")
+        print("SPIN-WHEEL FREKANS ANALiZi (kompleks fazor, tam kayit)")
         print("-" * 56)
-        print(f"|z| ort (spin genligi)  : {amp_z:.6f}")
-        print(f"Yontem B (dogrudan faz) :")
-        print(f"  f_direct   : {f_direct:.16f} Hz")
-        print(f"Yontem A (IQ, hassas)   :")
-        print(f"  Taban      : {base_spin_freq:.16f} Hz")
-        print(f"  Df         : {delta_f:+.16f} Hz")
-        print(f"  f_measured : {f_iq:.16f} Hz")
-        print(f"Fark (A-B)   : {f_iq - f_direct:+.6e} Hz")
+        print(f"|z| ort (spin genligi)   : {amp_z:.6f}")
+        print(f"Olculen frekans (tam fit): {f_meas:.10f} Hz")
+        print(f"  Taban (base)           : {base_spin_freq:.10f} Hz")
+        print(f"  Df = f - base          : {delta_f:+.10f} Hz")
+        print(f"Fit kalitesi:")
+        print(f"  Faz kalan RMS          : {rms_resid:.4e} rad")
+        print(f"Capraz-kontrol (yari-yari):")
+        print(f"  1. yari f              : {f_h1:.10f} Hz")
+        print(f"  2. yari f              : {f_h2:.10f} Hz")
+        print(f"  Fark (2-1)             : {split_diff:+.4e} Hz  <- olcum belirsizligi")
+        if abs(split_diff) > 1e-3:
+            print("  UYARI: yarilar arasi fark > 1 mHz.")
+            print("    Fazda periyodik modulasyon var (orn. yuzlerce Hz).")
+            print("    mHz hassasiyet icin daha uzun t2 (kayit suresi) gerekir.")
         print("-" * 56)
 
-        # Grafik: Re(zd) normalize (IQ demod edilmis gercek kisim)
+        # Grafik: faz kalani (modulasyon) — hassasiyeti sinirlayan terim
         scale   = np.max(np.abs(s_dikey)) * 0.85 if np.max(np.abs(s_dikey)) > 0 else 1.0
-        re_zd   = np.real(zd)
-        re_norm = np.max(np.abs(re_zd)) if np.max(np.abs(re_zd)) > 0 else 1.0
-        ax.plot(t[trim:-trim], re_zd / re_norm * scale,
-                'g-', lw=1.2, label='Re(IQ demod)', alpha=0.85)
+        r_norm  = np.max(np.abs(resid)) if np.max(np.abs(resid)) > 0 else 1.0
+        ax.plot(t, resid / r_norm * scale,
+                'g-', lw=1.0, label='Faz kalanı (modulasyon)', alpha=0.85)
 
         ax.text(
             0.02, 0.03,
             f"|z| = {amp_z:.5f}\n"
-            f"[B] f_direct  : {f_direct:.10f} Hz\n"
-            f"[A] base      : {base_spin_freq:.6f} Hz\n"
-            f"    Df        : {delta_f:+.10f} Hz\n"
-            f"    f_measured: {f_iq:.10f} Hz\n"
-            f"Fark (A-B)    : {f_iq - f_direct:+.3e} Hz",
+            f"f_olculen : {f_meas:.10f} Hz\n"
+            f"base      : {base_spin_freq:.6f} Hz\n"
+            f"Df        : {delta_f:+.8f} Hz\n"
+            f"yari-yari : {split_diff:+.2e} Hz (belirsizlik)\n"
+            f"faz kalan : {rms_resid:.2e} rad",
             transform=ax.transAxes, fontsize=8, va='bottom',
             family='monospace',
             bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
