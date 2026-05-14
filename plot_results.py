@@ -283,7 +283,7 @@ def main():
           Analitik sinyal = hilbert(S_y)
           inst_phase = unwrap(angle(analytic))
           f_direct = polyfit_egim(inst_phase) / (2pi)
-          Taban çıkarmaı gerektirmez; mutlak frekans verir.
+          Taban çıkarmayi gerektirmez; mutlak frekans verir.
         """
         ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
 
@@ -291,10 +291,40 @@ def main():
             _spin_panel(ax, signal, ylabel)
             return
 
+        # Sinyal genliği yeterli değilse analiz anlamsız
+        sy_rms = np.sqrt(np.mean(signal**2))
+        if sy_rms < 0.01:
+            msg = (
+                f"UYARI: S_y RMS = {sy_rms:.2e}\n"
+                "Spin presesyonu yok veya \"\n"
+                "dekoherans olmus / yanlis \"\n"
+                "baslangic kosulu."
+            )
+            print("-" * 56)
+            print("S_y FREKANS ANALiZi")
+            print("-" * 56)
+            print(f"UYARI: S_y RMS = {sy_rms:.2e} (< 0.01)")
+            print("  Frekans analizi icin yeterli sinyal yok.")
+            print("  Olasi sebepler:")
+            print("    - Spin baslangic yonu S_y degil (ornegin Sz=1)")
+            print("    - Cok parcacikli simul. -> dekoherans -> ortalama ~0")
+            print("    - Yanlis simulation_data.txt dosyasi")
+            print("-" * 56)
+            ax.text(0.5, 0.5,
+                    f"S_y RMS = {sy_rms:.2e}\nYetersiz genlik\nFrekans ölçülemedi",
+                    transform=ax.transAxes, ha='center', va='center', fontsize=10,
+                    color='red', bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
+            ax.set_xlabel("Zaman (μs)")
+            ax.set_ylabel(ylabel)
+            ax.grid(True, linestyle='--', alpha=0.5)
+            return
+
         # ------------------------------------------------------------------
         # Yontem B: Hilbert donusumu ile dogrudan frekans olcumu
         # ------------------------------------------------------------------
         f_direct = None
+        inst_phase = None
+        trim_h = 0
         try:
             from scipy.signal import hilbert
             analytic   = hilbert(signal)
@@ -313,6 +343,9 @@ def main():
         # ------------------------------------------------------------------
         f_iq = None
         delta_f = None
+        amplitude = None
+        trim = 0
+        I_trim = Q_trim = np.array([])
         try:
             from scipy.ndimage import uniform_filter1d
 
@@ -367,14 +400,13 @@ def main():
         # ------------------------------------------------------------------
         # Grafige IQ I(t) ve Hilbert anlik frekansi ekle
         # ------------------------------------------------------------------
-        if f_iq is not None:
+        if f_iq is not None and len(I_trim) > 0:
             scale  = np.max(np.abs(signal)) * 0.9 if np.max(np.abs(signal)) > 0 else 1.0
             amp_iq = np.max(np.abs(I_trim)) if np.max(np.abs(I_trim)) > 0 else 1.0
             ax.plot(t[trim:-trim], I_trim / amp_iq * scale,
                     'g-', lw=1.2, label='I(t) IQ', alpha=0.8)
 
-        if f_direct is not None:
-            # Anlik frekans: faz turevinin ortalamasi (gorsellestirme icin)
+        if f_direct is not None and inst_phase is not None:
             dt_h = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
             inst_freq = np.diff(inst_phase) / (2 * np.pi * dt_h)
             from scipy.ndimage import uniform_filter1d as _uf
@@ -396,13 +428,14 @@ def main():
             lines.append(f"    Olculen : {f_iq:.10f} Hz")
         if f_direct is not None and f_iq is not None:
             lines.append(f"Fark(A-B)   : {f_iq - f_direct:+.4e} Hz")
-        ax.text(
-            0.02, 0.03,
-            "\n".join(lines),
-            transform=ax.transAxes, fontsize=8, va='bottom',
-            family='monospace',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
-        )
+        if lines:
+            ax.text(
+                0.02, 0.03,
+                "\n".join(lines),
+                transform=ax.transAxes, fontsize=8, va='bottom',
+                family='monospace',
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
+            )
 
         ax.legend(fontsize=8, loc='upper right')
         ax.set_xlabel("Zaman (μs)")
