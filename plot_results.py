@@ -88,9 +88,9 @@ def main():
     t     = t_sec * 1e6        # μs
     x     = data[:, 1] * 1000  # mm
     y     = data[:, 2] * 1000  # mm
-    sx    = data[:, 7]
-    sy    = data[:, 8]
-    sz    = data[:, 9]
+    sx    = data[:, 7]   # S_Rady (radyal spin, ~sabit)
+    sy    = data[:, 8]   # S_Dikey (dikey spin, -sin(Omega*t))
+    sz    = data[:, 9]   # S_Long (boylamsal spin, -cos(Omega*t))
 
     with open(_p("params.json"), "r") as f:
         params = json.load(f)
@@ -150,7 +150,7 @@ def main():
             ax.text(0.5, 0.5, "Sinyal yok", ha='center', va='center', transform=ax.transAxes)
         ax.set_title(title)
         ax.set_xlabel("Frekans (Hz)")
-        ax.set_ylabel("Genlik (mm)")
+        ax.set_ylabel("Genlik")
         ax.grid(True, linestyle='--', alpha=0.5)
 
     # ---- Row 1: radial x ----
@@ -265,191 +265,118 @@ def main():
         ax.set_ylabel(ylabel)
         ax.grid(True, linestyle='--', alpha=0.5)
 
-    _spin_panel(axs[2, 0], sx, "$S_x$")
+    _spin_panel(axs[2, 0], sx, "$S_x$ (radyal)")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    def _sy_freq_analysis(ax, signal, ylabel):
+    def _sy_freq_analysis(ax, s_dikey, s_long, ylabel):
         """
-        S_y frekans analizi — iki yöntemle karşılaştırmalı ölçüm.
+        Spin-wheel frekans analizi — kompleks fazör yöntemi.
 
-        Yöntem A (IQ demodülasyon, yüksek hassasiyet):
-          base_spin_freq > 0 ise: S_y ~ f_base'de salınır.
-          I = S_y * cos(2pi*f_base*t), Q = S_y * sin(2pi*f_base*t) -> LPF
-          phase = atan2(Q, I) = 2pi*Df*t + phi0
-          Df = d(phase)/dt / (2pi)
+        S_Dikey = -sin(Omega*t)  (dikey spin, sütun 8)
+        S_Long  = -cos(Omega*t)  (boylamsal spin, sütun 9)
+        z(t) = S_Long + j*S_Dikey = -exp(j*Omega*t)
+
+        Bu fazör tam çember çiziyor (|z|=1), sadece referans frekansında
+        dönüyor. IQ demodülas-yonu için LPF gereksiz — karmasık çarpma
+        toplam frekansını tamamen yokeder.
+
+        Yöntem B (doğrudan):
+          phase = unwrap(angle(z))  ->  slope = 2*pi*f  ->  f_direct
+
+        Yöntem A (IQ, hassas):
+          zd = z * exp(-j*2*pi*f_base*t)  ->  angle(zd) = 2*pi*Df*t
           f_measured = f_base + Df
-
-        Yöntem B (Hilbert, doğrudan ölçüm):
-          Analitik sinyal = hilbert(S_y)
-          inst_phase = unwrap(angle(analytic))
-          f_direct = polyfit_egim(inst_phase) / (2pi)
-          Taban çıkarmayi gerektirmez; mutlak frekans verir.
         """
-        ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
+        ax.plot(t, s_dikey, 'k-', lw=0.8, alpha=0.4, label='S_Dikey (ham)')
 
         if base_spin_freq <= 0:
-            _spin_panel(ax, signal, ylabel)
+            _spin_panel(ax, s_dikey, ylabel)
             return
 
-        # Sinyal genliği yeterli değilse analiz anlamsız
-        sy_rms = np.sqrt(np.mean(signal**2))
-        if sy_rms < 0.01:
-            msg = (
-                f"UYARI: S_y RMS = {sy_rms:.2e}\n"
-                "Spin presesyonu yok veya \"\n"
-                "dekoherans olmus / yanlis \"\n"
-                "baslangic kosulu."
-            )
+        # Kompleks fazor: z = S_Long + j*S_Dikey
+        z = s_long + 1j * s_dikey
+        amp_z = np.mean(np.abs(z))
+
+        if amp_z < 0.5:
             print("-" * 56)
-            print("S_y FREKANS ANALiZi")
+            print("SPIN-WHEEL FREKANS ANALiZi")
             print("-" * 56)
-            print(f"UYARI: S_y RMS = {sy_rms:.2e} (< 0.01)")
-            print("  Frekans analizi icin yeterli sinyal yok.")
-            print("  Olasi sebepler:")
-            print("    - Spin baslangic yonu S_y degil (ornegin Sz=1)")
-            print("    - Cok parcacikli simul. -> dekoherans -> ortalama ~0")
-            print("    - Yanlis simulation_data.txt dosyasi")
+            print(f"UYARI: |z| ort = {amp_z:.3e} (< 0.5)")
+            print("  Spin-wheel presesyonu yok.")
+            print("  Olasi sebep: E0ver=0, yanlis baslangic spini,")
+            print("  veya C++ donen cerceve hala aktif.")
             print("-" * 56)
-            ax.text(0.5, 0.5,
-                    f"S_y RMS = {sy_rms:.2e}\nYetersiz genlik\nFrekans ölçülemedi",
-                    transform=ax.transAxes, ha='center', va='center', fontsize=10,
-                    color='red', bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
-            ax.set_xlabel("Zaman (μs)")
-            ax.set_ylabel(ylabel)
+            ax.text(0.5, 0.5, f"|z| = {amp_z:.2e}\nPreses-yon yok",
+                    transform=ax.transAxes, ha='center', va='center',
+                    fontsize=10, color='red',
+                    bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
+            ax.set_xlabel("Zaman (μs)"); ax.set_ylabel(ylabel)
             ax.grid(True, linestyle='--', alpha=0.5)
             return
 
-        # ------------------------------------------------------------------
-        # Yontem B: Hilbert donusumu ile dogrudan frekans olcumu
-        # ------------------------------------------------------------------
-        f_direct = None
-        inst_phase = None
-        trim_h = 0
-        try:
-            from scipy.signal import hilbert
-            analytic   = hilbert(signal)
-            inst_phase = np.unwrap(np.angle(analytic))
-            # Hilbert kenar etkilerini azaltmak icin %5 kirp
-            trim_h = max(10, len(inst_phase) // 20)
-            t_h    = t_sec[trim_h:-trim_h]
-            p_h    = inst_phase[trim_h:-trim_h]
-            slope_h, _ = np.polyfit(t_h, p_h, 1)
-            f_direct   = slope_h / (2 * np.pi)
-        except Exception as e:
-            print(f"Hilbert analiz hatasi: {e}")
+        # %2 kirpma (kenar transiyenti)
+        trim = max(10, len(z) // 50)
+        t_t  = t_sec[trim:-trim]
+        z_t  = z[trim:-trim]
 
-        # ------------------------------------------------------------------
-        # Yontem A: IQ demodulaston ile Df olcumu
-        # ------------------------------------------------------------------
-        f_iq = None
-        delta_f = None
-        amplitude = None
-        trim = 0
-        I_trim = Q_trim = np.array([])
-        try:
-            from scipy.ndimage import uniform_filter1d
+        # ---- Yontem B: dogrudan fazor fazi ----
+        phase_b    = np.unwrap(np.angle(z_t))
+        slope_b, _ = np.polyfit(t_t, phase_b, 1)
+        f_direct   = slope_b / (2 * np.pi)
 
-            dt = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
+        # ---- Yontem A: karmasik IQ (LPF gereksiz) ----
+        zd         = z_t * np.exp(-2j * np.pi * base_spin_freq * t_t)
+        phase_a    = np.unwrap(np.angle(zd))
+        slope_a, _ = np.polyfit(t_t, phase_a, 1)
+        delta_f    = slope_a / (2 * np.pi)
+        f_iq       = base_spin_freq + delta_f
 
-            ref_cos = np.cos(2 * np.pi * base_spin_freq * t_sec)
-            ref_sin = np.sin(2 * np.pi * base_spin_freq * t_sec)
-            I_raw = signal * ref_cos
-            Q_raw = signal * ref_sin
-
-            # LPF: null @ f_base -> 2xf_base karisim terimini siler
-            win_lp = max(5, int(round(1.0 / (base_spin_freq * dt))))
-            I_filt = uniform_filter1d(I_raw, size=win_lp)
-            Q_filt = uniform_filter1d(Q_raw, size=win_lp)
-
-            trim = win_lp
-            if len(I_filt) - 2 * trim < 10:
-                trim = max(1, len(I_filt) // 10)
-            t_trim  = t_sec[trim:-trim]
-            I_trim  = I_filt[trim:-trim]
-            Q_trim  = Q_filt[trim:-trim]
-
-            amplitude = 2 * np.mean(np.sqrt(I_trim**2 + Q_trim**2))
-
-            phase = np.unwrap(np.arctan2(Q_trim, I_trim))
-            slope, _ = np.polyfit(t_trim, phase, 1)
-            delta_f   = slope / (2 * np.pi)
-            f_iq      = base_spin_freq + delta_f
-
-        except Exception as e:
-            print(f"IQ analiz hatasi: {e}")
-
-        # ------------------------------------------------------------------
-        # Sonuclari yazdir
-        # ------------------------------------------------------------------
         print("-" * 56)
-        print("S_y FREKANS ANALiZi")
+        print("SPIN-WHEEL FREKANS ANALiZi (kompleks fazor)")
         print("-" * 56)
-        if f_direct is not None:
-            print(f"Yontem B (Hilbert, dogrudan):")
-            print(f"  f_direct  : {f_direct:.16f} Hz")
-        if f_iq is not None:
-            print(f"Yontem A (IQ demodulaston):")
-            print(f"  Taban (base)  : {base_spin_freq:.16f} Hz")
-            print(f"  Df            : {delta_f:+.16f} Hz")
-            print(f"  f_measured    : {f_iq:.16f} Hz")
-            print(f"  Genlik        : {amplitude:.4e}")
-        if f_direct is not None and f_iq is not None:
-            print(f"Fark (IQ - Hilbert): {f_iq - f_direct:+.6e} Hz")
+        print(f"|z| ort (spin genligi)  : {amp_z:.6f}")
+        print(f"Yontem B (dogrudan faz) :")
+        print(f"  f_direct   : {f_direct:.16f} Hz")
+        print(f"Yontem A (IQ, hassas)   :")
+        print(f"  Taban      : {base_spin_freq:.16f} Hz")
+        print(f"  Df         : {delta_f:+.16f} Hz")
+        print(f"  f_measured : {f_iq:.16f} Hz")
+        print(f"Fark (A-B)   : {f_iq - f_direct:+.6e} Hz")
         print("-" * 56)
 
-        # ------------------------------------------------------------------
-        # Grafige IQ I(t) ve Hilbert anlik frekansi ekle
-        # ------------------------------------------------------------------
-        if f_iq is not None and len(I_trim) > 0:
-            scale  = np.max(np.abs(signal)) * 0.9 if np.max(np.abs(signal)) > 0 else 1.0
-            amp_iq = np.max(np.abs(I_trim)) if np.max(np.abs(I_trim)) > 0 else 1.0
-            ax.plot(t[trim:-trim], I_trim / amp_iq * scale,
-                    'g-', lw=1.2, label='I(t) IQ', alpha=0.8)
+        # Grafik: Re(zd) normalize (IQ demod edilmis gercek kisim)
+        scale   = np.max(np.abs(s_dikey)) * 0.85 if np.max(np.abs(s_dikey)) > 0 else 1.0
+        re_zd   = np.real(zd)
+        re_norm = np.max(np.abs(re_zd)) if np.max(np.abs(re_zd)) > 0 else 1.0
+        ax.plot(t[trim:-trim], re_zd / re_norm * scale,
+                'g-', lw=1.2, label='Re(IQ demod)', alpha=0.85)
 
-        if f_direct is not None and inst_phase is not None:
-            dt_h = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
-            inst_freq = np.diff(inst_phase) / (2 * np.pi * dt_h)
-            from scipy.ndimage import uniform_filter1d as _uf
-            win_vis = max(5, len(inst_freq) // 200)
-            inst_freq_smooth = _uf(inst_freq, size=win_vis)
-            scale_f = np.max(np.abs(signal)) * 0.9 if np.max(np.abs(signal)) > 0 else 1.0
-            amp_f   = max(np.max(np.abs(inst_freq_smooth - f_direct)), 1e-12)
-            ax.plot(t[trim_h:-trim_h - 1],
-                    (inst_freq_smooth[trim_h:-trim_h] - f_direct) / amp_f * scale_f * 0.3,
-                    'b-', lw=1.0, label='Anlik f (Hilbert)', alpha=0.6)
-
-        # Metin kutusu
-        lines = []
-        if f_direct is not None:
-            lines.append(f"[B] Hilbert : {f_direct:.10f} Hz")
-        if f_iq is not None:
-            lines.append(f"[A] IQ base : {base_spin_freq:.6f} Hz")
-            lines.append(f"    Df      : {delta_f:+.10f} Hz")
-            lines.append(f"    Olculen : {f_iq:.10f} Hz")
-        if f_direct is not None and f_iq is not None:
-            lines.append(f"Fark(A-B)   : {f_iq - f_direct:+.4e} Hz")
-        if lines:
-            ax.text(
-                0.02, 0.03,
-                "\n".join(lines),
-                transform=ax.transAxes, fontsize=8, va='bottom',
-                family='monospace',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
-            )
-
+        ax.text(
+            0.02, 0.03,
+            f"|z| = {amp_z:.5f}\n"
+            f"[B] f_direct  : {f_direct:.10f} Hz\n"
+            f"[A] base      : {base_spin_freq:.6f} Hz\n"
+            f"    Df        : {delta_f:+.10f} Hz\n"
+            f"    f_measured: {f_iq:.10f} Hz\n"
+            f"Fark (A-B)    : {f_iq - f_direct:+.3e} Hz",
+            transform=ax.transAxes, fontsize=8, va='bottom',
+            family='monospace',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
+        )
         ax.legend(fontsize=8, loc='upper right')
         ax.set_xlabel("Zaman (μs)")
         ax.set_ylabel(ylabel)
         ax.grid(True, linestyle='--', alpha=0.5)
 
-    _sy_freq_analysis(axs[2, 1], sy, "$S_y$")
-    axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
+    _sy_freq_analysis(axs[2, 1], sy, sz, "$S_y$ (dikey)")
+    axs[2, 1].set_title("Spin-Wheel Frekans Analizi")
 
-    axs[2, 2].plot(t, sz, 'k-', lw=0.8)
-    axs[2, 2].set_title("Longitudinal Spin ($S_z$-t)")
+    _spin_panel(axs[2, 2], sz, "$S_z$ (boylamsal)")
+    axs[2, 2].set_title("Boylamsal Spin ($S_z$-t)")
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
+
     _plot_fft(axs[2, 3], t_sec, sy, "S_y(t) FFT")
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
