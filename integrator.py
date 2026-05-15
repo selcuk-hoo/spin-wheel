@@ -37,8 +37,6 @@ _lib.run_integration.argtypes = [
 ]
 _lib.run_integration.restype = None
 
-_lib.run_integration.restype = None
-
 # ==============================================================================
 # FIZIKSEL PARAMETRE SINIFI (FieldParams)
 # C++ motoruna gönderilecek manyetik alanlar, RF özellikleri ve simülasyon
@@ -72,23 +70,15 @@ class FieldParams:
         self.B0hor = 0.0
         self.quadYOffset = 0.0
         self.quadK0 = 0.0
-
-        self.quadK0 = 0.0
         self.E0ver = 0.0
         self.EDM_ETA = 1.88e-15
         self.N_particles = 1e8
         self.beam_radius_a = 0.01
         self.base_spin_freq = 0.0
-
     def to_c_array(self):
         """
         Sınıf içindeki tüm parametreleri, C++ fonksiyonuna gönderilebilecek
         formatta (`ctypes.c_double` array) ardışık bir diziye dönüştürür.
-
-        NOT: field_params[29] (C++ dönen çerçeve frekansı) her zaman 0.0
-        olarak gönderilir. Dönen çerçeve transformasyonu Python tarafında
-        IQ demodülasyonu ile yapılır (geometrik bug nedeniyle C++ versiyonu
-        devre dışı).
         """
         params = [
             self.R0, self.E0, self.E0_power,
@@ -102,7 +92,7 @@ class FieldParams:
             self.quadModA, self.quadModF, self.nFODO_off,
             self.B0hor, self.quadYOffset, self.quadK0, self.E0ver,
             self.EDM_ETA, self.N_particles, self.beam_radius_a,
-            0.0,  # field_params[29]: C++ dönen çerçeve kapalı
+            0.0,  # field_params[29]: C++ dönen çerçeve her zaman kapalı
         ]
         return (ctypes.c_double * len(params))(*params)
 

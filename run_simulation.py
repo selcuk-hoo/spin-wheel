@@ -1,5 +1,7 @@
 import json
 import time
+import copy
+import threading
 import numpy as np
 import os
 from integrator import integrate_particle, FieldParams
@@ -30,6 +32,8 @@ def main():
         os.remove("rf.txt")
     if os.path.isfile("cod_data.txt"):
         os.remove("cod_data.txt")
+    if os.path.isfile("simulation_data_ideal.txt"):
+        os.remove("simulation_data_ideal.txt")
     
     # ---------------------------------------------------------
     # 1. FİZİKSEL SABİTLER VE SİHİRLİ MOMENTUM HESABI
@@ -114,7 +118,9 @@ def main():
     alanlar.N_particles = float(config.get("N_particles", 0.0))
     alanlar.beam_radius_a = float(config.get("beam_radius_a", 0.01))
     alanlar.base_spin_freq = float(config.get("base_spin_freq", 0.0))
-    
+
+    simulate_ideal = int(config.get("simulate_ideal", 0))
+
     t0 = 0.0
     t_end = config.get("t2", 1e-5)
     h = config.get("dt", 1e-11)
@@ -130,16 +136,40 @@ def main():
     print(f"FODO Hücre Sayısı : {alanlar.nFODO}")
     print(f"Quadrupole (K1)   : {alanlar.quadK1}")
     print(f"Sextupole (S1)    : {alanlar.sextK1}")
-    if alanlar.base_spin_freq != 0.0:
-        print(f"Taban Spin Frekansı: {alanlar.base_spin_freq:.10f} Hz (Dönen Referans Sistemi)")
     print("==========================================================\n")
     print(f"Simülasyon motoru çalışıyor (Toplam Adım: {adim_sayisi:,})")
     start_time = time.time()
 
-    # C++ Entegratörünün çağrılması (Performans Kritik Bölüm)
-    sonuclar_local, poin_local, poincare_t_arr = integrate_particle(
-        y0, t0, t_end, h, fields=alanlar, return_steps=return_steps
-    )
+    if simulate_ideal:
+        # İdeal referans parçacığı: her şey aynı, sadece EDM ve uzay yükü kapalı
+        alanlar_ideal = copy.copy(alanlar)
+        alanlar_ideal.EDM_ETA = 0.0
+        alanlar_ideal.EDMSwitch = 0.0
+        alanlar_ideal.N_particles = 0.0
+
+        result_main  = [None]
+        result_ideal = [None]
+
+        def _run_main():
+            result_main[0] = integrate_particle(y0, t0, t_end, h, fields=alanlar, return_steps=return_steps)
+
+        def _run_ideal():
+            result_ideal[0] = integrate_particle(y0, t0, t_end, h, fields=alanlar_ideal, return_steps=return_steps)
+
+        print("İki parçacık paralel koşuyor (ana + ideal referans)...")
+        thr_main  = threading.Thread(target=_run_main)
+        thr_ideal = threading.Thread(target=_run_ideal)
+        thr_main.start();  thr_ideal.start()
+        thr_main.join();   thr_ideal.join()
+
+        sonuclar_local, poin_local, poincare_t_arr = result_main[0]
+        sonuclar_ideal = result_ideal[0][0]
+    else:
+        sonuclar_local, poin_local, poincare_t_arr = integrate_particle(
+            y0, t0, t_end, h, fields=alanlar, return_steps=return_steps
+        )
+        sonuclar_ideal = None
+
     end_time = time.time()
     
     print("==================================================")
@@ -261,6 +291,19 @@ def main():
         with open("rf.txt") as rf_f:
             n_rf = max(0, sum(1 for _ in rf_f) - 1)
         print(f"-> RF kovuk geçişleri: rf.txt ({n_rf} satır, RF faz diyagramı için).")
+
+    if sonuclar_ideal is not None:
+        print("İdeal parçacık verileri yazılıyor (simulation_data_ideal.txt)...")
+        with open("simulation_data_ideal.txt", "w") as f:
+            f.write("Time(s)\tDev_X_m\tY_vert_m\tZ_long_m\tPx\tPy\tPz\tS_Rady\tS_Dikey\tS_Long\n")
+            for i in range(len(t_array)):
+                lx, ly, lz = sonuclar_ideal[i, 0:3]
+                px, py, pz = sonuclar_ideal[i, 3:6]
+                sx_i, sy_i, sz_i = sonuclar_ideal[i, 6:9]
+                f.write(f"{t_array[i]:.6e}\t{lx:.6e}\t{ly:.6e}\t{lz:.6e}\t"
+                        f"{px:.6e}\t{py:.6e}\t{pz:.6e}\t"
+                        f"{sx_i:.6e}\t{sy_i:.6e}\t{sz_i:.6e}\n")
+        print(f"-> İdeal parçacık verisi kaydedildi ({len(t_array)} satır).")
 
 if __name__ == "__main__":
     main()

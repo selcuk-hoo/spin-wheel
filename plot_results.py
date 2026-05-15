@@ -13,18 +13,32 @@ def _p(*parts):
 
 
 def _estimate_tune(u, up, nFODO, poincare_quad_index):
+    """
+    Poincaré faz uzayı verilerinden (x-x' veya y-y') devir başına Betatron Tune (Q)
+    değerini tahmin eder.
+    
+    Yöntem: Faz açısındaki ilerlemeyi hesaplar (unwrap atan2). Eğer ölçüm noktası
+    özel bir Quadrupole değilse (poincare_quad_index < 0), her geçiş bir FODO hücresidir,
+    dolayısıyla nFODO ile çarpılarak tam tur başına Tune bulunur.
+    """
     uc  = u  - u.mean()
     upc = up - up.mean()
     if np.std(uc) < 1e-12 or np.std(upc) < 1e-12:
         return None
     dphi     = np.diff(np.unwrap(np.arctan2(upc, uc)))
     avg_dphi = abs(np.mean(dphi))
+    # When poincare_quad_index < 0 each sample is 1/nFODO of a revolution
     if poincare_quad_index < 0:
         return nFODO * avg_dphi / (2.0 * np.pi)
     return avg_dphi / (2.0 * np.pi)
 
 
 def _load_cod(n_per_turn):
+    """
+    run_simulation.py tarafından üretilen 'cod_data.txt' dosyasını okur.
+    Kapalı Yörünge (Closed Orbit Distortion - COD) verilerini (s_m, x_mm, y_mm) 
+    döndürür. Kapalı yörünge, halkanın referans yörüngesinden sapmaları ifade eder.
+    """
     cod_path = _p("cod_data.txt")
     if not os.path.exists(cod_path):
         return None, None, None
@@ -37,10 +51,12 @@ def _load_cod(n_per_turn):
     except (ValueError, OSError):
         return None, None, None
     print(f"[COD: {len(cd)} örgü elemanı okundu]")
+    # cod_data.txt stores x/y in mm.
     return cd[:, 0], cd[:, 1], cd[:, 2]
 
 
 def _save_rf_plot(params):
+    """Save RF phase-space diagram to rf.png (only if rf.txt exists)."""
     rf_path = _p("rf.txt")
     if not os.path.exists(rf_path):
         return
@@ -78,6 +94,15 @@ def _save_rf_plot(params):
 
 
 def main():
+    """
+    Ana görselleştirme rutini. 'simulation_data.txt', 'cod_data.txt' ve 
+    'poincare_data.txt' dosyalarını analiz ederek 3x4'lük devasa bir 
+    analiz paneli çizer. İçeriği:
+    - Orbit ve Faz Uzayı (Emitans hesaplamaları)
+    - Kapalı Yörünge Bozulması (COD) ve RMS analizi
+    - FFT ile frekans spektrumu
+    - Spin komponentleri (Sx, Sy, Sz) ve Savitzky-Golay ile eğim (trend) hesabı
+    """
     sim_path = _p("simulation_data.txt")
     if not os.path.exists(sim_path):
         print("HATA: 'simulation_data.txt' bulunamadı.")
@@ -94,16 +119,16 @@ def main():
 
     with open(_p("params.json"), "r") as f:
         params = json.load(f)
-    R0             = params.get("R0", 95.49)
-    nFODO          = params.get("nFODO", 24)
-    quadLen        = params.get("quadLen", 0.4)
-    driftLen       = params.get("driftLen", 2.0833)
-    pq_idx         = params.get("poincare_quad_index", -1)
-    base_spin_freq = params.get("base_spin_freq", 0.0)
+    R0       = params.get("R0", 95.49)
+    nFODO    = params.get("nFODO", 24)
+    quadLen  = params.get("quadLen", 0.4)
+    driftLen = params.get("driftLen", 2.0833)
+    pq_idx        = params.get("poincare_quad_index", -1)
+    simulate_ideal = int(params.get("simulate_ideal", 0))
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
-    n_per_turn    = nFODO * 8
+    n_per_turn    = nFODO * 8  # element entries recorded per revolution
 
     # ---- Poincaré data & tune estimation ----
     x_pc = xp_pc = y_pc = yp_pc = np.array([])
@@ -122,6 +147,7 @@ def main():
                 yp_pc = (pc_data[:, 4] / pz_pc) * 1000
                 Qx = _estimate_tune(x_pc, xp_pc, nFODO, pq_idx)
                 Qy = _estimate_tune(y_pc, yp_pc, nFODO, pq_idx)
+
                 if Qx is not None and Qy is not None:
                     print(f"[Tune: Qx={Qx:.4f}  Qy={Qy:.4f}]")
         except (ValueError, OSError):
@@ -163,9 +189,10 @@ def main():
     if cod_s is not None:
         lbl = f"Qx={Qx:.3f}" if Qx is not None else "tur ort."
         axs[0, 1].plot(cod_s, cod_x, 'b-', lw=1.5, label=lbl)
-        rms_x = np.sqrt(np.mean(cod_x**2))
+        rms_x   = np.sqrt(np.mean(cod_x**2))
+        sum_x   = np.sum(cod_x)
         axs[0, 1].text(0.97, 0.97,
-                       f"RMS = {rms_x*1e3:.2f} μm\nTop = {np.sum(cod_x)*1e3:.2f} μm",
+                       f"RMS = {rms_x*1e3:.2f} μm\nTop = {sum_x*1e3:.2f} μm",
                        transform=axs[0, 1].transAxes, fontsize=8, va='top', ha='right',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[0, 1].legend(fontsize=8)
@@ -207,9 +234,10 @@ def main():
     if cod_s is not None:
         lbl = f"Qy={Qy:.3f}" if Qy is not None else "tur ort."
         axs[1, 1].plot(cod_s, cod_y, 'b-', lw=1.5, label=lbl)
-        rms_y = np.sqrt(np.mean(cod_y**2))
+        rms_y   = np.sqrt(np.mean(cod_y**2))
+        sum_y   = np.sum(cod_y)
         axs[1, 1].text(0.97, 0.97,
-                       f"RMS = {rms_y*1e3:.2f} μm\nTop = {np.sum(cod_y)*1e3:.2f} μm",
+                       f"RMS = {rms_y*1e3:.2f} μm\nTop = {sum_y*1e3:.2f} μm",
                        transform=axs[1, 1].transAxes, fontsize=8, va='top', ha='right',
                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85))
         axs[1, 1].legend(fontsize=8)
@@ -268,158 +296,32 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    def _sy_freq_analysis(ax, signal, ylabel):
-        """
-        S_y frekans analizi — iki yöntemle karşılaştırmalı ölçüm.
-
-        Yöntem A (IQ demodülasyon, yüksek hassasiyet):
-          base_spin_freq > 0 ise: S_y ~ f_base'de salınır.
-          I = S_y * cos(2pi*f_base*t), Q = S_y * sin(2pi*f_base*t) -> LPF
-          phase = atan2(Q, I) = 2pi*Df*t + phi0
-          Df = d(phase)/dt / (2pi)
-          f_measured = f_base + Df
-
-        Yöntem B (Hilbert, doğrudan ölçüm):
-          Analitik sinyal = hilbert(S_y)
-          inst_phase = unwrap(angle(analytic))
-          f_direct = polyfit_egim(inst_phase) / (2pi)
-          Taban çıkarmaı gerektirmez; mutlak frekans verir.
-        """
-        ax.plot(t, signal, 'k-', lw=0.8, alpha=0.4, label='Ham')
-
-        if base_spin_freq <= 0:
-            _spin_panel(ax, signal, ylabel)
-            return
-
-        # ------------------------------------------------------------------
-        # Yontem B: Hilbert donusumu ile dogrudan frekans olcumu
-        # ------------------------------------------------------------------
-        f_direct = None
+    # S_y paneli: simulate_ideal==1 ise ΔS_y, değilse ham S_y
+    sy_ideal = None
+    if simulate_ideal and os.path.exists(_p("simulation_data_ideal.txt")):
         try:
-            from scipy.signal import hilbert
-            analytic   = hilbert(signal)
-            inst_phase = np.unwrap(np.angle(analytic))
-            # Hilbert kenar etkilerini azaltmak icin %5 kirp
-            trim_h = max(10, len(inst_phase) // 20)
-            t_h    = t_sec[trim_h:-trim_h]
-            p_h    = inst_phase[trim_h:-trim_h]
-            slope_h, _ = np.polyfit(t_h, p_h, 1)
-            f_direct   = slope_h / (2 * np.pi)
-        except Exception as e:
-            print(f"Hilbert analiz hatasi: {e}")
+            ideal_data = np.loadtxt(_p("simulation_data_ideal.txt"), skiprows=1)
+            if ideal_data.shape[0] == len(sy):
+                sy_ideal = ideal_data[:, 8]
+        except (ValueError, OSError):
+            print("Uyarı: simulation_data_ideal.txt okunamadı, ham S_y çiziliyor.")
 
-        # ------------------------------------------------------------------
-        # Yontem A: IQ demodulaston ile Df olcumu
-        # ------------------------------------------------------------------
-        f_iq = None
-        delta_f = None
-        try:
-            from scipy.ndimage import uniform_filter1d
-
-            dt = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
-
-            ref_cos = np.cos(2 * np.pi * base_spin_freq * t_sec)
-            ref_sin = np.sin(2 * np.pi * base_spin_freq * t_sec)
-            I_raw = signal * ref_cos
-            Q_raw = signal * ref_sin
-
-            # LPF: null @ f_base -> 2xf_base karisim terimini siler
-            win_lp = max(5, int(round(1.0 / (base_spin_freq * dt))))
-            I_filt = uniform_filter1d(I_raw, size=win_lp)
-            Q_filt = uniform_filter1d(Q_raw, size=win_lp)
-
-            trim = win_lp
-            if len(I_filt) - 2 * trim < 10:
-                trim = max(1, len(I_filt) // 10)
-            t_trim  = t_sec[trim:-trim]
-            I_trim  = I_filt[trim:-trim]
-            Q_trim  = Q_filt[trim:-trim]
-
-            amplitude = 2 * np.mean(np.sqrt(I_trim**2 + Q_trim**2))
-
-            phase = np.unwrap(np.arctan2(Q_trim, I_trim))
-            slope, _ = np.polyfit(t_trim, phase, 1)
-            delta_f   = slope / (2 * np.pi)
-            f_iq      = base_spin_freq + delta_f
-
-        except Exception as e:
-            print(f"IQ analiz hatasi: {e}")
-
-        # ------------------------------------------------------------------
-        # Sonuclari yazdir
-        # ------------------------------------------------------------------
-        print("-" * 56)
-        print("S_y FREKANS ANALiZi")
-        print("-" * 56)
-        if f_direct is not None:
-            print(f"Yontem B (Hilbert, dogrudan):")
-            print(f"  f_direct  : {f_direct:.16f} Hz")
-        if f_iq is not None:
-            print(f"Yontem A (IQ demodulaston):")
-            print(f"  Taban (base)  : {base_spin_freq:.16f} Hz")
-            print(f"  Df            : {delta_f:+.16f} Hz")
-            print(f"  f_measured    : {f_iq:.16f} Hz")
-            print(f"  Genlik        : {amplitude:.4e}")
-        if f_direct is not None and f_iq is not None:
-            print(f"Fark (IQ - Hilbert): {f_iq - f_direct:+.6e} Hz")
-        print("-" * 56)
-
-        # ------------------------------------------------------------------
-        # Grafige IQ I(t) ve Hilbert anlik frekansi ekle
-        # ------------------------------------------------------------------
-        if f_iq is not None:
-            scale  = np.max(np.abs(signal)) * 0.9 if np.max(np.abs(signal)) > 0 else 1.0
-            amp_iq = np.max(np.abs(I_trim)) if np.max(np.abs(I_trim)) > 0 else 1.0
-            ax.plot(t[trim:-trim], I_trim / amp_iq * scale,
-                    'g-', lw=1.2, label='I(t) IQ', alpha=0.8)
-
-        if f_direct is not None:
-            # Anlik frekans: faz turevinin ortalamasi (gorsellestirme icin)
-            dt_h = t_sec[1] - t_sec[0] if len(t_sec) > 1 else 1e-6
-            inst_freq = np.diff(inst_phase) / (2 * np.pi * dt_h)
-            # Medyan filtre ile gurultuyu azalt (gorsellestirme icin)
-            from scipy.ndimage import uniform_filter1d as _uf
-            win_vis = max(5, len(inst_freq) // 200)
-            inst_freq_smooth = _uf(inst_freq, size=win_vis)
-            scale_f = np.max(np.abs(signal)) * 0.9 if np.max(np.abs(signal)) > 0 else 1.0
-            amp_f   = max(np.max(np.abs(inst_freq_smooth - f_direct)), 1e-12)
-            # normalize et: ortalama etrafindaki salinimlari goster
-            ax.plot(t[trim_h:-trim_h - 1],
-                    (inst_freq_smooth[trim_h:-trim_h] - f_direct) / amp_f * scale_f * 0.3,
-                    'b-', lw=1.0, label='Anlik f (Hilbert)', alpha=0.6)
-
-        # Metin kutusu
-        lines = []
-        if f_direct is not None:
-            lines.append(f"[B] Hilbert : {f_direct:.10f} Hz")
-        if f_iq is not None:
-            lines.append(f"[A] IQ base : {base_spin_freq:.6f} Hz")
-            lines.append(f"    Df      : {delta_f:+.10f} Hz")
-            lines.append(f"    Olculen : {f_iq:.10f} Hz")
-        if f_direct is not None and f_iq is not None:
-            lines.append(f"Fark(A-B)   : {f_iq - f_direct:+.4e} Hz")
-        ax.text(
-            0.02, 0.03,
-            "\n".join(lines),
-            transform=ax.transAxes, fontsize=8, va='bottom',
-            family='monospace',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
-        )
-
-        ax.legend(fontsize=8, loc='upper right')
-        ax.set_xlabel("Zaman (μs)")
-        ax.set_ylabel(ylabel)
-        ax.grid(True, linestyle='--', alpha=0.5)
-
-    _sy_freq_analysis(axs[2, 1], sy, "$S_y$")
-    axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
+    if sy_ideal is not None:
+        delta_sy = sy - sy_ideal
+        _spin_panel(axs[2, 1], delta_sy, "$\\Delta S_y$")
+        axs[2, 1].set_title("Diferansiyel Spin ($\\Delta S_y$ = $S_y^{\\mathrm{ana}}$ - $S_y^{\\mathrm{ideal}}$)")
+    else:
+        _spin_panel(axs[2, 1], sy, "$S_y$")
+        axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     axs[2, 2].plot(t, sz, 'k-', lw=0.8)
     axs[2, 2].set_title("Longitudinal Spin ($S_z$-t)")
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
-    _plot_fft(axs[2, 3], t_sec, sy, "S_y(t) FFT")
+    sy_fft = delta_sy if sy_ideal is not None else sy
+    fft_label = "$\\Delta S_y$(t) FFT" if sy_ideal is not None else "$S_y$(t) FFT"
+    _plot_fft(axs[2, 3], t_sec, sy_fft, fft_label)
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)

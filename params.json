@@ -37,5 +37,6 @@
     "eRatio": 1.0,
     "quadModA": 0.0,
     "quadModF": 10000.0,
-    "nFODO_off": 8
+    "nFODO_off": 8,
+    "simulate_ideal": 0
 }
