@@ -99,7 +99,7 @@ def main():
     quadLen        = params.get("quadLen", 0.4)
     driftLen       = params.get("driftLen", 2.0833)
     pq_idx         = params.get("poincare_quad_index", -1)
-    base_spin_freq = params.get("base_spin_freq", 0.0)
+    simulate_ideal = int(params.get("simulate_ideal", 0))
 
     arc_len       = np.pi * R0 / nFODO
     circumference = nFODO * (2 * arc_len + 4 * driftLen + 2 * quadLen)
@@ -268,124 +268,32 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$ (radyal)")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    def _sy_freq_analysis(ax, s_dikey, s_long, ylabel):
-        """
-        Spin-wheel frekans analizi — kompleks fazör yöntemi.
+    # S_y paneli: simulate_ideal==1 ise ΔS_y, değilse ham S_y
+    sy_ideal = None
+    if simulate_ideal and os.path.exists(_p("simulation_data_ideal.txt")):
+        try:
+            ideal_data = np.loadtxt(_p("simulation_data_ideal.txt"), skiprows=1)
+            if ideal_data.shape[0] == len(sy):
+                sy_ideal = ideal_data[:, 8]
+        except (ValueError, OSError):
+            print("Uyarı: simulation_data_ideal.txt okunamadı, ham S_y çiziliyor.")
 
-        S_Dikey = -sin(Omega*t)  (dikey spin, sütun 8)
-        S_Long  = -cos(Omega*t)  (boylamsal spin, sütun 9)
-        z(t) = S_Long + j*S_Dikey = -exp(j*Omega*t),   |z| = 1
-
-        Faz, transform/filtre olmadan dogrudan cikar -> KENAR ETKiSi YOK.
-        Bu yuzden TUM kayit kullanilir (kirpma yok); kirpma sadece
-        modulasyon kaynakli pencere-bagimli yanlilik katar.
-
-          f = egim(unwrap(angle(z))) / (2*pi)
-
-        ONEMLi: "IQ demod (f_base cikararak)" ile "dogrudan faz" bu kayit
-        boyunda matematiksel olarak AYNI sonucu verir (float64 ikisini
-        ayirt edemez); dolayisiyla bu bir capraz-kontrol DEGiLDiR.
-        Gercek capraz-kontrol: kaydin ilk/ikinci yarisini ayri fit etmek
-        -> fark, fazdaki periyodik modulasyonun olcum belirsizligini verir.
-        """
-        ax.plot(t, s_dikey, 'k-', lw=0.8, alpha=0.4, label='S_Dikey (ham)')
-
-        if base_spin_freq <= 0:
-            _spin_panel(ax, s_dikey, ylabel)
-            return
-
-        # Kompleks fazor: z = S_Long + j*S_Dikey
-        z = s_long + 1j * s_dikey
-        amp_z = np.mean(np.abs(z))
-
-        if amp_z < 0.5:
-            print("-" * 56)
-            print("SPIN-WHEEL FREKANS ANALiZi")
-            print("-" * 56)
-            print(f"UYARI: |z| ort = {amp_z:.3e} (< 0.5)")
-            print("  Spin-wheel presesyonu yok.")
-            print("  Olasi sebep: E0ver=0, yanlis baslangic spini,")
-            print("  veya C++ donen cerceve hala aktif.")
-            print("-" * 56)
-            ax.text(0.5, 0.5, f"|z| = {amp_z:.2e}\nPreses-yon yok",
-                    transform=ax.transAxes, ha='center', va='center',
-                    fontsize=10, color='red',
-                    bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
-            ax.set_xlabel("Zaman (μs)"); ax.set_ylabel(ylabel)
-            ax.grid(True, linestyle='--', alpha=0.5)
-            return
-
-        # Kenar etkisi olmadigi icin TUM kayit kullanilir (kirpma yok)
-        phase = np.unwrap(np.angle(z))
-
-        # --- Tam kayit dogrusal fit ---
-        coef     = np.polyfit(t_sec, phase, 1)
-        slope    = coef[0]
-        f_meas   = slope / (2 * np.pi)
-        delta_f  = f_meas - base_spin_freq
-
-        # --- Fit kalitesi: dogrusaldan kalan (modulasyon) ---
-        resid     = phase - np.polyval(coef, t_sec)
-        rms_resid = np.std(resid)
-
-        # --- Gercek capraz-kontrol: ilk yari / ikinci yari ---
-        n_h = len(t_sec) // 2
-        f_h1 = np.polyfit(t_sec[:n_h], phase[:n_h], 1)[0] / (2 * np.pi)
-        f_h2 = np.polyfit(t_sec[n_h:], phase[n_h:], 1)[0] / (2 * np.pi)
-        split_diff = f_h2 - f_h1
-
-        print("-" * 56)
-        print("SPIN-WHEEL FREKANS ANALiZi (kompleks fazor, tam kayit)")
-        print("-" * 56)
-        print(f"|z| ort (spin genligi)   : {amp_z:.6f}")
-        print(f"Olculen frekans (tam fit): {f_meas:.10f} Hz")
-        print(f"  Taban (base)           : {base_spin_freq:.10f} Hz")
-        print(f"  Df = f - base          : {delta_f:+.10f} Hz")
-        print(f"Fit kalitesi:")
-        print(f"  Faz kalan RMS          : {rms_resid:.4e} rad")
-        print(f"Capraz-kontrol (yari-yari):")
-        print(f"  1. yari f              : {f_h1:.10f} Hz")
-        print(f"  2. yari f              : {f_h2:.10f} Hz")
-        print(f"  Fark (2-1)             : {split_diff:+.4e} Hz  <- olcum belirsizligi")
-        if abs(split_diff) > 1e-3:
-            print("  UYARI: yarilar arasi fark > 1 mHz.")
-            print("    Fazda periyodik modulasyon var (orn. yuzlerce Hz).")
-            print("    mHz hassasiyet icin daha uzun t2 (kayit suresi) gerekir.")
-        print("-" * 56)
-
-        # Grafik: faz kalani (modulasyon) — hassasiyeti sinirlayan terim
-        scale   = np.max(np.abs(s_dikey)) * 0.85 if np.max(np.abs(s_dikey)) > 0 else 1.0
-        r_norm  = np.max(np.abs(resid)) if np.max(np.abs(resid)) > 0 else 1.0
-        ax.plot(t, resid / r_norm * scale,
-                'g-', lw=1.0, label='Faz kalanı (modulasyon)', alpha=0.85)
-
-        ax.text(
-            0.02, 0.03,
-            f"|z| = {amp_z:.5f}\n"
-            f"f_olculen : {f_meas:.10f} Hz\n"
-            f"base      : {base_spin_freq:.6f} Hz\n"
-            f"Df        : {delta_f:+.8f} Hz\n"
-            f"yari-yari : {split_diff:+.2e} Hz (belirsizlik)\n"
-            f"faz kalan : {rms_resid:.2e} rad",
-            transform=ax.transAxes, fontsize=8, va='bottom',
-            family='monospace',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.92)
-        )
-        ax.legend(fontsize=8, loc='upper right')
-        ax.set_xlabel("Zaman (μs)")
-        ax.set_ylabel(ylabel)
-        ax.grid(True, linestyle='--', alpha=0.5)
-
-    _sy_freq_analysis(axs[2, 1], sy, sz, "$S_y$ (dikey)")
-    axs[2, 1].set_title("Spin-Wheel Frekans Analizi")
+    if sy_ideal is not None:
+        delta_sy = sy - sy_ideal
+        _spin_panel(axs[2, 1], delta_sy, "$\\Delta S_y$")
+        axs[2, 1].set_title("Diferansiyel Spin ($\\Delta S_y$ = $S_y^{\\mathrm{ana}}$ - $S_y^{\\mathrm{ideal}}$)")
+    else:
+        _spin_panel(axs[2, 1], sy, "$S_y$")
+        axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     _spin_panel(axs[2, 2], sz, "$S_z$ (boylamsal)")
     axs[2, 2].set_title("Boylamsal Spin ($S_z$-t)")
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
-
-    _plot_fft(axs[2, 3], t_sec, sy, "S_y(t) FFT")
+    sy_fft = delta_sy if sy_ideal is not None else sy
+    fft_label = "$\\Delta S_y$(t) FFT" if sy_ideal is not None else "$S_y$(t) FFT"
+    _plot_fft(axs[2, 3], t_sec, sy_fft, fft_label)
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)

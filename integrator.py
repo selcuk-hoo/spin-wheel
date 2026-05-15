@@ -100,7 +100,7 @@ class FieldParams:
             self.quadModA, self.quadModF, self.nFODO_off,
             self.B0hor, self.quadYOffset, self.quadK0, self.E0ver,
             self.EDM_ETA, self.N_particles, self.beam_radius_a,
-            0.0,  # field_params[29]: C++ dönen çerçeve KAPALI
+            0.0,  # field_params[29]: C++ dönen çerçeve kapalı
         ]
         return (ctypes.c_double * len(params))(*params)
 
