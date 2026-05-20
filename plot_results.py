@@ -85,7 +85,7 @@ def main():
 
     data  = np.loadtxt(sim_path, skiprows=1)
     t_sec = data[:, 0]
-    t     = t_sec * 1e6        # μs
+    t     = t_sec * 1e3        # ms
     x     = data[:, 1] * 1000  # mm
     y     = data[:, 2] * 1000  # mm
     sx    = data[:, 7]   # S_Rady (radyal spin, ~sabit)
@@ -156,7 +156,7 @@ def main():
     # ---- Row 1: radial x ----
     axs[0, 0].plot(t, x, 'k-', lw=0.8)
     axs[0, 0].set_title("Radyal Konum (x-t)")
-    axs[0, 0].set_xlabel("Zaman (μs)")
+    axs[0, 0].set_xlabel("Zaman (ms)")
     axs[0, 0].set_ylabel("x (mm)")
     axs[0, 0].grid(True, linestyle='--', alpha=0.5)
 
@@ -200,7 +200,7 @@ def main():
     # ---- Row 2: vertical y ----
     axs[1, 0].plot(t, y, 'k-', lw=0.8)
     axs[1, 0].set_title("Dikey Konum (y-t)")
-    axs[1, 0].set_xlabel("Zaman (μs)")
+    axs[1, 0].set_xlabel("Zaman (ms)")
     axs[1, 0].set_ylabel("y (mm)")
     axs[1, 0].grid(True, linestyle='--', alpha=0.5)
 
@@ -261,7 +261,7 @@ def main():
                     transform=ax.transAxes, fontsize=9, va='bottom',
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.9))
             ax.legend(fontsize=8, loc='upper right')
-        ax.set_xlabel("Zaman (μs)")
+        ax.set_xlabel("Zaman (ms)")
         ax.set_ylabel(ylabel)
         ax.grid(True, linestyle='--', alpha=0.5)
 
@@ -283,7 +283,7 @@ def main():
 
     _spin_panel(axs[2, 2], sz, "$S_z$ (boylamsal)")
     axs[2, 2].set_title("Boylamsal Spin ($S_z$-t)")
-    axs[2, 2].set_xlabel("Zaman (μs)")
+    axs[2, 2].set_xlabel("Zaman (ms)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
 
