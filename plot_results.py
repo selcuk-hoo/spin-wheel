@@ -268,7 +268,7 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$ (radyal)")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    # axs[2,1]: Her zaman ham S_Dikey gösterilir (spin korunumu kontrolü için gerekli)
+    # axs[2,1]: simulate_ideal=1 ise ΔS_y, değilse ham S_y
     sy_ideal = None
     if simulate_ideal and os.path.exists(_p("simulation_data_ideal.txt")):
         try:
@@ -278,8 +278,13 @@ def main():
         except (ValueError, OSError):
             print("Uyarı: simulation_data_ideal.txt okunamadı.")
 
-    _spin_panel(axs[2, 1], sy, "$S_y$ (S_Dikey)")
-    axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
+    if sy_ideal is not None:
+        delta_sy = sy - sy_ideal
+        _spin_panel(axs[2, 1], delta_sy, "$\\Delta S_y$")
+        axs[2, 1].set_title("$\\Delta S_y$ = Ana $-$ İdeal")
+    else:
+        _spin_panel(axs[2, 1], sy, "$S_y$")
+        axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     _spin_panel(axs[2, 2], sz, "$S_z$ (boylamsal)")
     axs[2, 2].set_title("Boylamsal Spin ($S_z$-t)")
@@ -287,13 +292,7 @@ def main():
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
 
-    # axs[2,3]: simulate_ideal=1 ise ΔS_y, değilse S_y FFT
-    if sy_ideal is not None:
-        delta_sy = sy - sy_ideal
-        _spin_panel(axs[2, 3], delta_sy, "$\\Delta S_y$")
-        axs[2, 3].set_title("$\\Delta S_y$ = Ana $-$ İdeal")
-    else:
-        _plot_fft(axs[2, 3], t_sec, sy, "$S_y$(t) FFT")
+    _plot_fft(axs[2, 3], t_sec, sy, "$S_y$(t) FFT")
 
     # Spin korunumu kontrolü: |S|² = Sx²+Sy²+Sz² her an 1 olmalı
     s_norm_sq = sx**2 + sy**2 + sz**2
