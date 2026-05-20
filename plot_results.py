@@ -154,49 +154,66 @@ def main():
         ax.grid(True, linestyle='--', alpha=0.5)
 
     def _sy_fft_peaks(t_seconds, signal, f_center=1000.0, f_window=500.0):
-        """S_y FFT'sinden ana tepe (~1 kHz) ve side band'leri bulup yazdırır."""
+        """S_y FFT'sinden ana tepe (~1 kHz) ve side band'leri bulup yazdırır.
+
+        Tepe frekansları parabolik interpolasyonla sub-bin hassasiyete taşınır:
+          δk = (a[k-1] - a[k+1]) / (2*(a[k-1] - 2*a[k] + a[k+1]))
+          f_hassas = freq[k] + δk * df
+        """
         dt = np.mean(np.diff(t_seconds))
-        freq = np.fft.rfftfreq(len(signal), d=dt)
-        amp  = np.abs(np.fft.rfft(signal - np.mean(signal))) / len(signal)
+        N  = len(signal)
+        freq = np.fft.rfftfreq(N, d=dt)
+        amp  = np.abs(np.fft.rfft(signal - np.mean(signal))) / N
+        df   = freq[1] - freq[0]
+
+        def _parabolic(amp_full, k):
+            """Bin k etrafında parabolik interpolasyon; hassas frekans ofsetini döndürür."""
+            if k <= 0 or k >= len(amp_full) - 1:
+                return 0.0
+            a0, a1, a2 = amp_full[k - 1], amp_full[k], amp_full[k + 1]
+            denom = a0 - 2 * a1 + a2
+            if abs(denom) < 1e-30:
+                return 0.0
+            return 0.5 * (a0 - a2) / denom  # δk cinsinden ofset
 
         # Ana arama penceresi: f_center ± f_window Hz
         win = (freq >= max(1.0, f_center - f_window)) & (freq <= f_center + f_window)
         if not win.any():
             return
-        freq_w = freq[win]
-        amp_w  = amp[win]
+        win_indices = np.where(win)[0]   # penceredeki global bin indeksleri
+        amp_w  = amp[win_indices]
+        freq_w = freq[win_indices]
 
-        # Ana tepe: penceредeki maksimum
-        main_idx = np.argmax(amp_w)
-        f_main   = freq_w[main_idx]
-        a_main   = amp_w[main_idx]
+        # Ana tepe (penceredeki maksimum), parabolik interpolasyonla hassaslaştır
+        local_main = np.argmax(amp_w)
+        global_main = win_indices[local_main]
+        dk_main  = _parabolic(amp, global_main)
+        f_main   = freq[global_main] + dk_main * df
+        a_main   = amp_w[local_main]
 
-        # Side band arama: ana tepeden ±f_window Hz içindeki diğer tepeler
-        # Minimum prominans: ana tepenin %1'i; minimum mesafe: frekans çözünürlüğünün 5 katı
-        df       = freq[1] - freq[0]
-        min_dist = max(1, int(5.0 / df))          # 5 Hz minimum ayırım
+        # Side band tespiti: prominans eşiği ana tepenin %1'i, min ayırım 5 Hz
+        min_dist = max(1, int(5.0 / df))
         min_prom = a_main * 0.01
+        peaks_local, _ = find_peaks(amp_w, prominence=min_prom, distance=min_dist)
 
-        peaks_idx, props = find_peaks(amp_w, prominence=min_prom, distance=min_dist)
-
-        print("-" * 56)
+        print("-" * 62)
         print(f"S_y FFT TEPE ANALİZİ  (pencere: {f_center-f_window:.0f}–{f_center+f_window:.0f} Hz)")
-        print(f"  Frekans çözünürlüğü : {df:.4f} Hz")
-        print(f"  Ana tepe            : {f_main:.4f} Hz   genlik={a_main:.4e}")
+        print(f"  FFT bin genişliği   : {df:.6f} Hz  (T={1/df:.4f} s)")
+        print(f"  Ana tepe            : {f_main:.6f} Hz   genlik={a_main:.4e}")
 
-        if len(peaks_idx) > 1:
-            # Ana tepelerin dışındakileri side band olarak göster
-            print(f"  Side band'ler ({len(peaks_idx)-1} adet):")
-            for i in peaks_idx:
-                f_i = freq_w[i]
-                a_i = amp_w[i]
-                if abs(f_i - f_main) < df / 2:
-                    continue  # ana tepenin kendisi
-                delta = f_i - f_main
-                print(f"    {f_i:10.4f} Hz   genlik={a_i:.4e}   Δf={delta:+.4f} Hz")
+        if len(peaks_local) > 1:
+            print(f"  Side band'ler ({len(peaks_local)-1} adet):")
+            for li in peaks_local:
+                gi = win_indices[li]
+                dk = _parabolic(amp, gi)
+                f_i = freq[gi] + dk * df
+                a_i = amp_w[li]
+                if abs(f_i - f_main) < df * 0.5:
+                    continue
+                print(f"    {f_i:12.6f} Hz   genlik={a_i:.4e}   Δf={f_i-f_main:+.6f} Hz")
         else:
             print("  Side band tespit edilmedi.")
-        print("-" * 56)
+        print("-" * 62)
 
     # ---- Row 1: radial x ----
     axs[0, 0].plot(t, x, 'k-', lw=0.8)
