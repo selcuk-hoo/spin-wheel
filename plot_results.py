@@ -201,8 +201,10 @@ def main():
 
         print("-" * 62)
         print(f"S_y FFT TEPE ANALİZİ  (pencere: {f_center-f_window:.0f}–{f_center+f_window:.0f} Hz)")
-        print(f"  FFT bin genişliği   : {df:.3f} Hz  (T={1/df:.4f} s, Hanning penceresi)")
-        print(f"  Ana tepe            : {f_main:.3f} Hz   genlik={a_main:.4e}  [hassasiyet ~±{0.004*df:.3f} Hz]")
+        acc = 0.004 * df  # Hanning + parabolik interpolasyon hassasiyeti
+        print(f"  FFT bin genişliği   : {df:.1f} Hz  (T={1/df:.4f} s, Hanning penceresi)")
+        print(f"  Hassasiyet          : ~±{acc:.1f} Hz")
+        print(f"  Ana tepe            : {f_main:.1f} Hz   genlik={a_main:.4e}")
 
         if len(peaks_local) > 1:
             print(f"  Side band'ler ({len(peaks_local)-1} adet):")
@@ -213,7 +215,7 @@ def main():
                 a_i = amp_w[li]
                 if abs(f_i - f_main) < df * 0.5:
                     continue
-                print(f"    {f_i:10.3f} Hz   genlik={a_i:.4e}   Δf={f_i-f_main:+.3f} Hz")
+                print(f"    {f_i:.1f} Hz   genlik={a_i:.4e}   Δf={f_i-f_main:+.1f} Hz")
         else:
             print("  Side band tespit edilmedi.")
         print("-" * 62)
