@@ -163,7 +163,10 @@ def main():
         dt = np.mean(np.diff(t_seconds))
         N  = len(signal)
         freq = np.fft.rfftfreq(N, d=dt)
-        amp  = np.abs(np.fft.rfft(signal - np.mean(signal))) / N
+        # Hanning penceresi: sinc yan loblarını bastırır, parabolik interpolasyon
+        # hatası dikdörtgen pencerenin ~1/18'ine düşer (~0.004*df)
+        window = np.hanning(N)
+        amp  = np.abs(np.fft.rfft((signal - np.mean(signal)) * window)) / (N * 0.5)
         df   = freq[1] - freq[0]
 
         def _parabolic(amp_full, k):
@@ -198,8 +201,8 @@ def main():
 
         print("-" * 62)
         print(f"S_y FFT TEPE ANALİZİ  (pencere: {f_center-f_window:.0f}–{f_center+f_window:.0f} Hz)")
-        print(f"  FFT bin genişliği   : {df:.6f} Hz  (T={1/df:.4f} s)")
-        print(f"  Ana tepe            : {f_main:.6f} Hz   genlik={a_main:.4e}")
+        print(f"  FFT bin genişliği   : {df:.3f} Hz  (T={1/df:.4f} s, Hanning penceresi)")
+        print(f"  Ana tepe            : {f_main:.3f} Hz   genlik={a_main:.4e}  [hassasiyet ~±{0.004*df:.3f} Hz]")
 
         if len(peaks_local) > 1:
             print(f"  Side band'ler ({len(peaks_local)-1} adet):")
@@ -210,7 +213,7 @@ def main():
                 a_i = amp_w[li]
                 if abs(f_i - f_main) < df * 0.5:
                     continue
-                print(f"    {f_i:12.6f} Hz   genlik={a_i:.4e}   Δf={f_i-f_main:+.6f} Hz")
+                print(f"    {f_i:10.3f} Hz   genlik={a_i:.4e}   Δf={f_i-f_main:+.3f} Hz")
         else:
             print("  Side band tespit edilmedi.")
         print("-" * 62)
