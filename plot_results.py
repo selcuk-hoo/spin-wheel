@@ -268,7 +268,7 @@ def main():
     _spin_panel(axs[2, 0], sx, "$S_x$ (radyal)")
     axs[2, 0].set_title("Radyal Spin ($S_x$-t)")
 
-    # S_y paneli: simulate_ideal==1 ise ΔS_y, değilse ham S_y
+    # axs[2,1]: Her zaman ham S_Dikey gösterilir (spin korunumu kontrolü için gerekli)
     sy_ideal = None
     if simulate_ideal and os.path.exists(_p("simulation_data_ideal.txt")):
         try:
@@ -276,24 +276,28 @@ def main():
             if ideal_data.shape[0] == len(sy):
                 sy_ideal = ideal_data[:, 8]
         except (ValueError, OSError):
-            print("Uyarı: simulation_data_ideal.txt okunamadı, ham S_y çiziliyor.")
+            print("Uyarı: simulation_data_ideal.txt okunamadı.")
 
-    if sy_ideal is not None:
-        delta_sy = sy - sy_ideal
-        _spin_panel(axs[2, 1], delta_sy, "$\\Delta S_y$")
-        axs[2, 1].set_title("Diferansiyel Spin ($\\Delta S_y$ = $S_y^{\\mathrm{ana}}$ - $S_y^{\\mathrm{ideal}}$)")
-    else:
-        _spin_panel(axs[2, 1], sy, "$S_y$")
-        axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
+    _spin_panel(axs[2, 1], sy, "$S_y$ (S_Dikey)")
+    axs[2, 1].set_title("Dikey Spin ($S_y$-t)")
 
     _spin_panel(axs[2, 2], sz, "$S_z$ (boylamsal)")
     axs[2, 2].set_title("Boylamsal Spin ($S_z$-t)")
     axs[2, 2].set_xlabel("Zaman (μs)")
     axs[2, 2].set_ylabel("$S_z$")
     axs[2, 2].grid(True, linestyle='--', alpha=0.5)
-    sy_fft = delta_sy if sy_ideal is not None else sy
-    fft_label = "$\\Delta S_y$(t) FFT" if sy_ideal is not None else "$S_y$(t) FFT"
-    _plot_fft(axs[2, 3], t_sec, sy_fft, fft_label)
+
+    # axs[2,3]: simulate_ideal=1 ise ΔS_y, değilse S_y FFT
+    if sy_ideal is not None:
+        delta_sy = sy - sy_ideal
+        _spin_panel(axs[2, 3], delta_sy, "$\\Delta S_y$")
+        axs[2, 3].set_title("$\\Delta S_y$ = Ana $-$ İdeal")
+    else:
+        _plot_fft(axs[2, 3], t_sec, sy, "$S_y$(t) FFT")
+
+    # Spin korunumu kontrolü: |S|² = Sx²+Sy²+Sz² her an 1 olmalı
+    s_norm_sq = sx**2 + sy**2 + sz**2
+    print(f"-> Spin normu |S|²: min={s_norm_sq.min():.6f}  max={s_norm_sq.max():.6f}  (ideal=1.000000)")
 
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
     plt.savefig(_p("simulasyon_sonuclari.png"), dpi=150)
