@@ -87,6 +87,7 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     
     double X = r[0], Y = r[1], Z = r[2];
     double R = std::sqrt(X*X + Y*Y);
+    double dir_field = field_params[11];  // ışın yönü (±1)
 
     E[0] = 0.0; E[1] = 0.0; E[2] = 0.0;
     B[0] = 0.0; B[1] = 0.0; B[2] = 0.0;
@@ -110,8 +111,13 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
         E[1] = E_r * sin_th;
         E[2] = E_z + E0ver;
 
-        B[0] = -B0rad * cos_th + B0long * sin_th;
-        B[1] = -B0rad * sin_th - B0long * cos_th;
+        // B0long ışın yönü boyunca tanımlanır.
+        // CW tangenti = (sin θ, -cos θ, 0), CCW tangenti = (-sin θ, cos θ, 0).
+        // Katsayı (-dir) ile çarpılınca her iki yönde "ışın yönünde" olur.
+        // Default dir=-1 (CW) için bu mevcut kodla AYNI sonuç verir.
+        double long_sign = -dir_field;
+        B[0] = -B0rad * cos_th + B0long * sin_th * long_sign;
+        B[1] = -B0rad * sin_th - B0long * cos_th * long_sign;
         B[2] = B0ver;
     } else if (element_type == 2 || element_type == 3) {
         double current_K1 = (element_type == 2) ? quadK1 : -quadK1;
@@ -366,7 +372,14 @@ void run_integration(double* y_init, const double* field_params,
     bool past_first_rev = false;
 
     while (t < t_end) {
-        int current_fodo = total_fodo_cells % nFODO;
+        int code_cell = total_fodo_cells % nFODO;
+        // Fiziksel cell indeksi: CW için code_cell, CCW için ters sıra.
+        // CW: code_iter 0,1,2,... → phys 0,1,2,...
+        // CCW: code_iter 0,1,2,... → phys 23,22,21,... (aynı halkayı ters yönde dolaşır)
+        // Bu sayede misalignment, RF, COD vb. SABİT fiziksel pozisyonda tetiklenir.
+        int current_fodo = (dir > 0)
+            ? ((nFODO - 1 - code_cell) % nFODO + nFODO) % nFODO
+            : code_cell;
 
         const int start_elem = 1;
         for (int elem_iter = 0; elem_iter < 8; ++elem_iter) {
