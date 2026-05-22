@@ -1,8 +1,9 @@
 # 6D Proton EDM & Spin-Wheel Depolama Halkası Simülatörü
 
-**Yazar:** Selcuk H.
+**Yazar:** Selcuk H.  
+**Güncel Sürüm:** v3.2
 
-Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 6 boyutlu bir depolama halkası simülasyonudur. Parçacık dinamiği ve spin presesyonu C++ ile yüksek hassasiyetle çözülür; parametre yönetimi, sinyal analizi ve görselleştirme Python katmanında yapılır. Simülatör, yavaş EDM sinyallerinin tespitini (Spin-Wheel metodu) yüksek hassasiyetle simüle edebilmektedir.
+Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 6 boyutlu bir depolama halkası simülasyonudur. Parçacık dinamiği ve spin presesyonu C++ ile yüksek hassasiyetle çözülür; parametre yönetimi, sinyal analizi ve görselleştirme Python katmanında yapılır.
 
 ---
 
@@ -14,12 +15,12 @@ Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 
 4. [C++ Entegratör: `integrator.cpp`](#4-c-entegratör-integratorcpp)
 5. [Python Köprüsü: `integrator.py`](#5-python-köprüsü-integratorpy)
 6. [Simülasyon Orkestrasyonu: `run_simulation.py`](#6-simülasyon-orkestrasyonu-run_simulationpy)
-7. [Spin-Wheel Sinyal İşleme ve Analiz](#7-spin-wheel-sinyal-i̇şleme-ve-analiz)
+7. [Diferansiyel Spin Analizi: İdeal Referans Yöntemi](#7-diferansiyel-spin-analizi-ideal-referans-yöntemi)
 8. [Görselleştirme: `plot_results.py`](#8-görselleştirme-plot_resultspy)
 9. [Parametreler: `params.json`](#9-parametreler-paramsjson)
 10. [Demet İçi Etkileşimler (Collective Effects)](#10-demet-i̇çi-etkileşimler-collective-effects)
-11. [İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler](#11-i̇leri-seviye-spin-dinamikleri-ve-fiziksel-gözlemler)
-12. [Analitik Dönen Referans Sistemi (Rotating Frame)](#12-analitik-dönen-referans-sistemi-rotating-frame)
+11. [Betatron Spin Analizi: 5 Parçacık Yöntemi](#11-betatron-spin-analizi-5-parçacık-yöntemi)
+12. [İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler](#12-i̇leri-seviye-spin-dinamikleri-ve-fiziksel-gözlemler)
 13. [Kurulum ve Çalıştırma](#13-kurulum-ve-çalıştırma)
 
 ---
@@ -35,7 +36,7 @@ $$p_{\text{magic}} = \frac{m_p c}{\sqrt{G_p}} \approx 0.701\ \text{GeV/c}$$
 Bu momentumda, elektrik alandan kaynaklanan spin presesyonu tam olarak sıfırlanır (Thomas terimi ile Larmor terimi birbirini götürür). Böylece spin, radyal yönde donmuş kalır ve yalnızca EDM varlığında dikey bileşen kazanır.
 
 ### Spin-Wheel Metodu
-Spin-Wheel metodu, EDM ölçümünü kolaylaştırmak için deflektörlere dışarıdan kontrollü bir dikey elektrik alanı ($E_{0ver}$) uygulanması esasına dayanır. Bu alan, proton spininin yavaşça dönmesine (presesyon) sebep olur. Bu dönme frekansındaki ince sapmalar (modulation), doğrudan protonun EDM duyarlılık katsayısına ($\eta$) bağlıdır.
+Spin-Wheel metodu, EDM ölçümünü kolaylaştırmak için deflektörlere dışarıdan kontrollü bir dikey elektrik alanı ($E_{0ver}$) uygulanması esasına dayanır. Bu alan, proton spininin yavaşça dönmesine (presesyon) sebep olur; ~1115 Hz spin-wheel frekansı oluşur. Bu frekanstaki ince sapmalar doğrudan EDM duyarlılık katsayısına ($\eta$) bağlıdır.
 
 ---
 
@@ -50,14 +51,11 @@ elem=0   =1    =2    =3    =4    =5    =6    =7
 | Eleman | Tipi | Görevi |
 |--------|------|--------|
 | ARC1, ARC2 | Silindirik kapasitör | Parçacığı büküp halka boyunca taşır ve dikey elektrik alan (Spin-Wheel) uygular |
-| QF | Odaklayan quadrupol (G₁ > 0) | Radyal düzlemde odaklar. (K-Modülasyon ve misalignment hataları desteklenir) |
+| QF | Odaklayan quadrupol (G₁ > 0) | Radyal düzlemde odaklar |
 | QD | Ayrıştıran quadrupol (−G₁) | Dikey düzlemde odaklar |
-| DRIFT | Serbest yol | Saha yok, parçacık düz ilerler |
-
-> **Not:** Halkanın ilk FODO hücresinin (elem=0) girişinde, isteğe bağlı olarak parçacıklara uzunlamasına bir enerji değişimi uygulayan bir **RF Kovuğu (RF Cavity)** tanımlanabilmektedir.
+| DRIFT | Serbest yol | Alan yok, parçacık düz ilerler |
 
 ### Betatron Tune
-FODO örgüsündeki odaklama gücü, parçacığın halkayı her dolaşımında kaç salınım yaptığını belirler:
 $$Q_x \approx 2.69 \qquad Q_y \approx 2.36 \quad (G_1 = 0.21\ \text{T/m için})$$
 
 ---
@@ -69,159 +67,240 @@ Simülatör **global Kartezyen** koordinat kullanır:
 - **Y**: Halka düzleminde azimutal yön (parçacık bu yönde hareket eder)
 - **Z**: Dikey yön
 
-Her yay elemanından sonra `rotate_all()` C++ fonksiyonu koordinat çerçevesini `−Φ_def` kadar döndürür. Böylece parçacık her eleman girişinde `(X ≈ R₀, Y ≈ 0)` konumundan başlıyor gibi görünür (dönen çerçeve).
+Her yay elemanından sonra `rotate_all()` C++ fonksiyonu koordinat çerçevesini −Φ_def kadar döndürür. Python çıktısında sütunlar şu anlama gelir:
+- **S_Rady** (sütun 7): Radyal spin bileşeni (~0, ideal durumda sabit)
+- **S_Dikey** (sütun 8): Dikey spin bileşeni (= −sin Ωt, spin-wheel salınımı)
+- **S_Long** (sütun 9): Boylamsal spin bileşeni (= −cos Ωt)
 
 ---
 
 ## 4. C++ Entegratör: `integrator.cpp`
 
 ### GL4 Simplektik Entegratör
-Hareket denklemleri (Newton + Thomas-BMT) **Gauss–Legendre 4. derece örtük Runge–Kutta** yöntemiyle çözülür. GL4 enerjiyi ve faz uzayı hacmini uzun vadede korur, bu da EDM gibi minik kümülatif etkilerin simülasyonunda hayati öneme sahiptir.
+Hareket denklemleri (Newton + Thomas-BMT) **Gauss–Legendre 4. derece örtük Runge–Kutta** yöntemiyle çözülür. GL4 enerjiyi ve faz uzayı hacmini uzun vadede korur. Thomas-BMT spin normunu daima |S|=1'de tutar.
 
-### Elektromanyetik Alanlar: `get_electromagnetic_fields()`
-**Yay (ARC):** Silindirik kapasitör alanı ve Spin-Wheel için eklenen dikey elektrik alanı:
-$$E_r(R,Z) = E_0 \left(\frac{R_0}{R}\right)^n \dots \qquad E_Z = E_{0ver}$$
+### Elektromanyetik Alanlar
+**Yay (ARC):** Silindirik kapasitör + Spin-Wheel dikey alanı:
+$$E_r(R,Z) = E_0 \left(\frac{R_0}{R}\right)^n \qquad E_Z = E_{0ver}$$
 
-**Quadrupol (QF/QD):** Kaçıklık bileşenleri dahil saf quadrupol alanı:
+**Quadrupol (QF/QD):**
 $$B_r = G_1\,(Z - d_y) \qquad B_Z = G_1\,(X - R_0 - d_x)$$
 
-### Kapalı Yörünge Verisi (COD) ve Poincaré Kesiti
-Her tur ortalaması alınarak kapalı yörünge sapması (COD) `cod_data.txt` dosyasına yazılır.
-Ayrıca, `poincare_quad_index = -1` seçildiğinde her FODO hücresinin başında kayıt alınır. Bu sayede aliasing (frekans katlanması) önlenir ve Betatron Tune ($Q_x, Q_y$) kusursuz şekilde hesaplanır.
-
 ### Thomas-BMT Spin Dinamiği
-Spin vektörü $\mathbf{S}$, Thomas-BMT denklemiyle evrilir. Simülatörde EDM duyarlılık katsayısı olan $\eta$ (`EDM_ETA`) sabit kodlanmamıştır; Python katmanından dinamik olarak çekilir ve Thomas-BMT denklemlerine anlık dahil edilir.
+Spin vektörü **S**, Thomas-BMT denklemiyle evrilir. EDM duyarlılık katsayısı $\eta$ (`EDM_ETA`) Python katmanından dinamik olarak çekilir.
+
+> **Not:** `field_params[29]` (C++ dönen çerçeve parametresi) her zaman 0.0 olarak gönderilir; C++ dönen çerçeve devre dışıdır. Diferansiyel ölçüm bu parametreye ihtiyaç duymaz.
 
 ---
 
 ## 5. Python Köprüsü: `integrator.py`
 
-C++ motoru ile Python arasındaki iletişimi sağlar. `FieldParams` sınıfı, `R0`, `E0ver`, `EDM_ETA`, `dev0` gibi tüm fizik parametrelerini tutar ve `to_c_array()` metoduyla ardışık bir `ctypes.c_double` dizisine dönüştürerek `_lib.run_integration(...)` fonksiyonuna gönderir.
+C++ motoru ile Python arasındaki iletişimi sağlar. `FieldParams` sınıfı tüm fizik parametrelerini tutar ve `to_c_array()` metoduyla `ctypes.c_double` dizisine dönüştürerek `_lib.run_integration(...)` fonksiyonuna gönderir.
+
+`ctypes` C çağrıları sırasında Python GIL'ini serbest bırakır; bu sayede aynı anda birden fazla `integrate_particle()` çağrısı gerçek paralel çok-çekirdekli yürütme sağlar.
 
 ---
 
 ## 6. Simülasyon Orkestrasyonu: `run_simulation.py`
 
-Simülasyonun ana akışını kontrol eder:
+Ana simülasyon akışını kontrol eder:
 1. `params.json` dosyasından tüm girdileri okur.
-2. Sihirli momentumdaki parçacığı yörüngede tutacak ideal `E0` elektrik alanını otomatik hesaplar.
-3. İstenilen quad kaçıklıkları ve deflektör eğimlerini (tilt) dizi olarak oluşturur.
-4. Simülasyon motorunu çalıştırır ve Tune ile Spin trendi eğimlerini ekrana basar.
+2. Sihirli momentumda parçacığı yörüngede tutacak ideal E₀ elektrik alanını otomatik hesaplar.
+3. **`simulate_ideal = 1` ise:** İdeal referans parçacığını (EDM=0, space charge=0) ana simülasyonla **paralel** koşturur; sonucu `simulation_data_ideal.txt`'e kaydeder.
+4. Tune, emitans ve spin trendi eğimlerini ekrana basar.
 
 ---
 
-## 7. Spin-Wheel Sinyal İşleme ve Analiz
+## 7. Diferansiyel Spin Analizi: İdeal Referans Yöntemi
 
-Spin-Wheel metodunda hedef, `E0ver` ile tetiklenen yavaş dikey spin ($S_y$) presesyon frekansını (örneğin ~110 Hz) son derece yüksek bir hassasiyetle ölçmektir. Ancak parçacık başlangıçta kapalı yörüngeye oturmadığı için (transient state) ~10 kHz mertebesinde devasa betatron salınımları yapar. Bu gürültü EDM sinyalinden binlerce kat daha büyüktür.
+### Motivasyon
+Spin-wheel frekansını (~1115 Hz) doğrudan ölçerek EDM etkisini (~μHz) tespit etmek son derece güçtür. İki farklı ölçüm yöntemi (sinüs eğri uydurma, kompleks fazör analizi) sistematik olarak ~17 mHz farklı sonuçlar verir. Bu fark, S_y(t)'deki ~300 Hz fazlı modülasyondan kaynaklanır: iki yöntem bu modülasyonu farklı ağırlıklarla ortalar. Frekans alanında çalışmak yerine doğrudan diferansiyel spin çıktısı ölçmek bu sorunları ortadan kaldırır.
 
-**Sinyal İşleme Çözümü:**
-- **Hareketli Ortalama (Moving Average) Filtresi:** Veriye 0.1 ms pencere boyutuna sahip bir MA filtresi uygulanır. Bu filtre, betatron gürültülerini faz kaymasına (edge effect) yol açmadan mükemmel şekilde yutar.
-- **Dinamik Eğri Uydurma (Adaptive Curve Fit):** Sinyalin uzunluğuna göre kod otomatik olarak en doğru yöntemi seçer:
-  1. **Kısa Sinyaller (Sıfır geçişi < 2):** Eğer simülasyon çok kısaysa ve henüz tam bir sinüs dalgası oluşmamışsa, sinüse fit etmek hatalı sonuçlar verir. Bu durumda kod transient etkileri tıraşlar ve veriye en uygun **doğrusal doğruyu (linear fit)** oturtarak spin dönüşüm hızını (rad/s) bulur.
-  2. **Uzun Sinyaller (Sıfır geçişi $\ge$ 2):** Simülasyon birden fazla çevrim içeriyorsa, lokal minimum hatalarından kaçınmak için önce **Hızlı Fourier Dönüşümü (FFT)** ile baskın frekans tahmin edilir. Bu tahmin, `scipy.optimize.curve_fit` için başlangıç noktası olarak kullanılır ve zaman uzayında $f(t) = A \cdot \sin(2\pi f t + \phi) + C$ fonksiyonu veriye kusursuz şekilde oturtulur.
-Bu hibrit yapı sayesinde Spin-Wheel frekansı her simülasyon uzunluğu için en yüksek doğrulukla tespit edilir.
+### Yöntem
+`simulate_ideal = 1` olduğunda iki simülasyon paralel koşturulur:
+
+| | Ana simülasyon | İdeal referans |
+|---|---|---|
+| Lattice / E₀ver | params.json | params.json (aynı) |
+| EDM (η) | params.json değeri | 0 |
+| Space charge (N) | params.json değeri | 0 |
+| IBS | aktif olabilir | kapalı |
+
+Her örgü elemanında alınan fark:
+$$\Delta S_y(t) = S_y^{\text{ana}}(t) - S_y^{\text{ideal}}(t)$$
+
+### Neden çalışır?
+Her iki simülasyon da aynı lattice'i ve aynı E₀ver alanını kullandığı için spin-wheel taşıyıcısı (1115 Hz) ve lattice kaynaklı modülasyon büyük ölçüde iptal olur. Geri kalan ΔS_y yalnızca ölçmek istediğimiz pertürbasyonu (space charge, EDM, IBS) yansıtır.
+
+> **Önemli not:** ΔS_y'nin FFT'si hâlâ 1115 Hz civarında bir tepe içerir çünkü cos(ω·t+ε) − cos(ω·t) ≈ sin(ω·t)·ε(t) ifadesinde taşıyıcı tam iptal olmaz; yalnızca genliği ε kadar küçülür. Ortak-mod baskılanması DC ofset ve yavaş drift için geçerlidir, sinüsoidal taşıyıcı için değil. Bu nedenle FFT analizi ham S_y üzerinden yapılmaktadır.
 
 ---
 
 ## 8. Görselleştirme: `plot_results.py`
 
-3×4'lük devasa bir analiz paneli oluşturur:
-- **Satır 1 & 2:** Radyal ve Dikey düzlemlerde zamana bağlı yörünge, COD grafiği, Faz Uzayları ve FFT spektrumu.
-- **Satır 3:** Spin vektörlerinin ($S_x, S_y, S_z$) zaman içindeki evrimi. $S_y$ panelinde doğrudan MA filtresi ve Eğri Uydurma sonucu üst üste çizilir ve hesaplanan frekans (Hz) grafiğin içine yazılır.
-- RF verisi mevcutsa `rf.png` olarak faz diyagramını kaydeder.
+3×4'lük analiz paneli oluşturur:
+
+**Satır 1 & 2:** Radyal/Dikey yörünge (zaman), COD, faz uzayları, FFT spektrumu.
+
+**Satır 3 (Spin panelleri):**
+
+| Panel | `simulate_ideal=0` | `simulate_ideal=1` |
+|---|---|---|
+| [2,0] | Ham S_x (radyal) | Ham S_x (radyal) |
+| [2,1] | Ham S_y (dikey) | ΔS_y = S_y − S_y^ideal |
+| [2,2] | Ham S_z (boylamsal) | Ham S_z (boylamsal) |
+| [2,3] | FFT(S_y) | FFT(S_y) |
+
+Her panelde Savitzky-Golay filtresi ve doğrusal eğim gösterilir.
+
+### FFT Tepe Analizi
+`_sy_fft_peaks()` fonksiyonu S_y FFT'sinde 500–1500 Hz penceresi içindeki ana tepeyi ve side band'leri tespit eder:
+- **Hanning penceresi** yan lobları baskılar
+- **Parabolik interpolasyon** ile sub-bin hassasiyet: ~±0.2 Hz (T=0.02 s için)
+- Konsola frekans, genlik ve Δf değerleri yazdırılır
+
+### Spin Korunumu Kontrolü
+Her çalıştırmada `|S|² = Sx² + Sy² + Sz²` aralığı yazdırılır; 1.000000'dan sapma sayısal integrasyon hatasını gösterir.
 
 ---
 
 ## 9. Parametreler: `params.json`
 
-Sistem tamamen `params.json` üzerinden yönetilir:
-
 | Parametre | Açıklama | Varsayılan |
 |-----------|----------|------------|
-| `t2` | Toplam simülasyon süresi [s] (Spin-Wheel için min: 0.01) | 0.01 |
-| `dev0` / `y0` | Radyal/Dikey başlangıç tepmesi [m] | 0.0 |
-| `E0ver` | Spin-Wheel dikey elektrik alanı [V/m] | 1000.0 |
-| `EDM_ETA` | Proton EDM duyarlılık katsayısı $\eta$ | 1.88e-15 |
-| `poincare_quad_index`| Poincaré kesiti kayıt indeksi (−1 = her hücre) | −1 |
-| `rfSwitch` / `rfVoltage`| RF Kovuğu aç/kapat ve voltajı [V] | 0 / 1000000 |
-| `N_particles` | Demetteki toplam parçacık sayısı (Space Charge için) | 0e8 |
-| `beam_radius_a` | Demet yarıçapı [m] (Space Charge için) | 0.01 |
-| `B0hor` / `nFODO_off`| Hata analizi için yatay manyetik alan ve uygulanacağı quad | 0 / 8 |
-| `quadModA` / `quadModF` | Parametrik rezonans için Quadrupole modülasyon genliği ve frekansı | 0.0 / 10000.0 |
-| `base_spin_freq` | Analitik Dönen Referans Sistemi için taban spin frekansı (Hz) | 1115.7400768459 |
+| `t2` | Toplam simülasyon süresi [s] | 0.02 |
+| `dev0` / `y0` | Radyal/Dikey başlangıç sapması [m] | 0.0 |
+| `theta0_hor` / `theta0_ver` | Başlangıç açısal sapması [rad] | 1e-7 |
+| `theta0` | Betatron analizi için açı genliği [rad] (`run_5_particles.py`) | theta0_hor |
+| `E0ver` | Spin-Wheel dikey elektrik alanı [V/m] | 1e4 |
+| `EDM_ETA` | Proton EDM duyarlılık katsayısı η | 1.88e-15 |
+| `EDMSwitch` | EDM etkisini aç/kapat | 0 |
+| `simulate_ideal` | İdeal referans parçacığını paralel koştur (0/1) | 0 |
+| `N_particles` | Demetteki toplam parçacık sayısı (Space Charge) | 0 |
+| `beam_radius_a` | Demet yarıçapı [m] | 0.01 |
+| `poincare_quad_index` | Poincaré kesiti indeksi (−1 = her hücre) | −1 |
+| `rfSwitch` / `rfVoltage` | RF Kovuğu aç/kapat ve voltajı [V] | 0 / 1e6 |
+| `base_spin_freq` | Referans spin frekansı [Hz] (yalnızca kayıt amaçlı) | 1115.74 |
 
 ---
 
 ## 10. Demet İçi Etkileşimler (Collective Effects)
 
-Gerçek bir depolama halkasında tek bir proton değil, milyarlarca protondan oluşan bir demet (bunch) döner. Bu protonların birbirleriyle etkileşimi, EDM sinyali üzerinde iki farklı ve kritik bozucu etki yaratır. Simülatör, bu makroskopik ve mikroskopik etkileri **Weak-Strong (Zayıf-Güçlü)** modelleme yaklaşımıyla analitik olarak çözebilecek altyapıya sahiptir:
+### Boşluk Yükü (Space Charge) — Sahte EDM Sinyali
 
-### 1. Boşluk Yükü (Space Charge) - Sistematik Hata (False EDM)
-Milyarlarca protonun oluşturduğu demet, pürüzsüz ve sürekli bir şarj bulutu gibi davranır. Test parçacığı bu bulutun içinde salınım yaparken dışarı doğru itici bir Coulomb kuvveti (Defocusing) hisseder.
-- **Tune Kayması:** İtici kuvvet, kuadrupollerin odaklama gücünü zayıflattığı için betatron salınım frekansı düşer ($\Delta Q_y < 0$).
-- **Sahte EDM Sinyali:** Eğer demetin merkezi ideal yörüngeden dikey olarak sapmışsa (örneğin hizalama hataları nedeniyle), test parçacığı asimetrik bir elektromanyetik alan hisseder. Thomas-BMT denklemine giren bu sürekli asimetrik radyal manyetik alan, dikey spini ($S_y$) yavaşça yukarı kaldırır. Bu durum, tamamen sahte bir EDM sinyali üretir (Systematic Error).
-- **Simülasyon Modeli:** Gauss yasası kullanılarak demetin makroskopik elektrik ve manyetik alanları analitik olarak hesaplanır ve dış alanların üzerine eklenerek Lorentz kuvvetine dahil edilir.
+Milyarlarca protondan oluşan demetin yarattığı Coulomb alanı, test parçacığı üzerinde dışa doğru itici bir kuvvet (defocusing) uygular.
 
-### 2. Demet İçi Saçılma (IBS) - Faz Uyumsuzluğu (Spin Decoherence)
-Demetin içindeki protonların mikroskopik ölçekte birebir, rastgele Coulomb çarpışmaları yapmasıdır (Rutherford saçılması).
-- **Sihirli Momentumun Bozulması:** Çarpışmalar nedeniyle protonların enerjisi (momentumu) rastgele zıplamalarla değişir. Proton EDM deneyi tamamen $p \approx 0.701$ GeV/c "Sihirli Momentum" koşuluna bağlıdır. Momentumu sapan parçacıkların Thomas presesyonu artık sıfırlanmaz ve spin yatay düzlemde ($S_x, S_z$) çılgınca dönmeye başlar (g-2 precession).
-- **Sinyalin Yok Olması:** Trilyonlarca protonun spini farklı yönlere dağıldığı için toplam demet polarizasyonu (okunabilir sinyal) eriyip sıfıra iner. Buna **Spin Decoherence** denir. IBS sahte sinyal üretmez, var olan sinyali yok eder.
-- **Simülasyon Modeli:** IBS, Langevin stokastik diferansiyel denklemleri (Rastgele Yürüyüş) kullanılarak, parçacığın momentumuna her entegrasyon adımında rastgele bir difüzyon gürültüsü ($\Delta p$) eklenmesiyle modellenir. *(Not: IBS modülü henüz C++ motoruna tam entegre edilmemiştir, aktif geliştirme aşamasındadır.)*
+**Sahte EDM mekanizması:** Eğer demetin merkezi ideal yörüngeden dikey olarak sapmışsa, test parçacığı asimetrik bir elektromanyetik alan görür. Bu asimetri sürekli bir radyal manyetik alan bileşeni oluşturur; Thomas-BMT denklemine giren bu alan dikey spini yavaşça kaydırır. Bu kaydırma, gerçek bir EDM varlığındaki sinyal ile ayırt edilemez — tamamen sahte bir EDM sinyali üretir.
+
+**Simülasyon modeli:** Gauss yasası ile demetin makroskopik E ve B alanları analitik olarak hesaplanıp Lorentz kuvvetine eklenir.
+
+### Demet İçi Saçılma (IBS) — Spin Dekoheransı
+
+Protonların rastgele Coulomb çarpışmaları momentumu dağıtır. Momentumu sihirli değerden sapan parçacıkların Thomas presesyonu sıfırlanmaz; spinler farklı yönlere döner ve toplam polarizasyon sıfıra iner (Spin Decoherence). IBS sahte sinyal üretmez, var olan sinyali yok eder.
 
 ---
 
-## 11. İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler
+## 11. Betatron Spin Analizi: 5 Parçacık Yöntemi
 
-Simülasyon sonuçları incelenirken, özellikle tek parçacık (single-particle tracking) analizlerinde ilk bakışta anomali gibi görünen ancak tamamen fiziksel olan bazı hassas kuantum/klasik mekanik etkiler gözlemlenebilir. C++ motorunun yüksek simplektik hassasiyeti sayesinde yakalanan bu iki önemli fenomen aşağıda açıklanmıştır:
+### Motivasyon
 
-### 1. Dikey Spinde ($S_y$) Beklenmeyen DC Ofset (Geometrik Faz Etkisi)
-Elektrik alan ($E0_{ver} = 0$) ve EDM sinyali (`EDMSwitch = 0`) kapalı olmasına rağmen dikey spinde (örneğin $\sim 0.33$ mrad genliğinde) bir kayma (ofset) görülebilir.
-- **Nedeni:** Parçacık simülasyona dikey konumda tam merkezden ($y=0$) ancak küçük bir dikey hızla ($\theta_{ver} \neq 0$) başladığında dikey betatron salınımı bir sinüs fonksiyonu olur: $y(t) \propto \sin(\omega_\beta t)$.
-- Thomas-BMT denklemine göre bu hareketin yarattığı radyal manyetik alan, spinin dikey düzlemdeki değişim hızını belirler: $dS_y/dt \propto \sin(\omega_\beta t)$.
-- Spinin anlık durumunu bulmak için bu hızın integrali alındığında $S_y(t) = \int \sin(\omega_\beta t) dt = 1 - \cos(\omega_\beta t)$ elde edilir.
-- $1 - \cos$ fonksiyonu her zaman pozitiftir ve genliğinin yarısı kadar devasa bir **DC ofset** barındırır. Bu durum sahte bir EDM değil, tamamen başlangıç fazından kaynaklı klasik bir geometrik faz (geometric phase) birikimidir. Gerçek bir hızlandırıcıdaki trilyonlarca rastgele fazlı protonun ortalaması alındığında bu ofsetler birbirini mükemmel şekilde sönümleyerek sıfırlanır.
+Space charge'ın ürettiği sahte EDM sinyalinin başlıca kaynağı, betatron salınımları sırasında parçacığın asimetrik bir Coulomb alanı görmesidir. Eğer farklı başlangıç açılarına sahip parçacıkların spinleri uygun şekilde birleştirilirse, betatron salınımına bağlı ortak-mod etkilerin kısmen iptal olması beklenir.
 
-### 2. Hareketli Ortalama Sonrası Ortaya Çıkan ~1462 Hz Sinyali (Spin-Yörünge Vuruntusu)
-`plot_results.py` içindeki Hareketli Ortalama (Moving Average) filtresi, yüksek frekanslı ana betatron ($\sim 1.76$ MHz) ve ana spin presesyon ($\sim 490$ kHz) sinyallerini tamamen ezip yok eder. Ancak filtreden sızan ve 1462 Hz gibi çok düşük bir frekansta salınan minik bir sinüs dalgası kalır.
-- **Nedeni:** Yatay (radyal) betatron salınımı ($Q_x \approx 8.23$), kuadrupollerdeki manyetik alanı modüle ederek spinin dönüş fazını (Spin Tune $\nu_s \approx 2.237$) etkiler. Bu doğrusal olmayan etkileşim, faz uzayında bir "vuruntu" (beating) frekansı yaratır.
-- Halkanın ayrık (discrete) yapısı nedeniyle bu frekanslar devir frekansının ($f_{rev} \approx 218.97$ kHz) harmoniklerinde katlanır (aliasing). 6. harmoniğe göre frekans farkı alındığında: $\Delta Q = |Q_x - \nu_s - 6| \approx |8.230 - 2.237 - 6| \approx 0.0067$ elde edilir.
-- Bu küsuratlı rezonans farkını devir frekansıyla çarptığımızda: $0.0067 \times 218974 \text{ Hz} \approx \mathbf{1462 \text{ Hz}}$ frekansına ulaşılır.
-- Kısacası bu 1462 Hz sinyali bir hata veya gürültü değil, simülasyonun ikinci dereceden **Intrinsic Spin Resonance (Doğal Spin Rezonansı)** yan bantlarını bile kusursuz şekilde yakalayabildiğinin net bir ispatıdır.
+### Parçacık Konfigürasyonları
+
+`run_5_particles.py` beş parçacığı aynı anda paralel olarak çalıştırır:
+
+| İndeks | θ_hor | θ_ver | Açıklama |
+|--------|-------|-------|----------|
+| 0 | 0 | 0 | İdeal referans (betatron yok) |
+| 1 | +θ₀ | +θ₀ | |
+| 2 | +θ₀ | −θ₀ | |
+| 3 | −θ₀ | +θ₀ | |
+| 4 | −θ₀ | −θ₀ | |
+
+θ₀ değeri `params.json` dosyasındaki `theta0` (yoksa `theta0_hor`) anahtarından okunur.
+
+### Spin Kombinasyonları
+
+`plot_5_particle_results.py` beş farklı simetri kombinasyonunu çizer:
+
+| Kombinasyon | İfade | Test edilen simetri |
+|-------------|-------|---------------------|
+| 1 | $s_{1y} - s_{0y}$ | Tek parçacık farkı |
+| 2 | $\frac{1}{2}(s_{1y}+s_{2y}) - s_{0y}$ | Dikey yansıma ortalaması |
+| 3 | $\frac{1}{2}(s_{1y}+s_{3y}) - s_{0y}$ | Yatay yansıma ortalaması |
+| 4 | $\frac{1}{2}(s_{1y}+s_{4y}) - s_{0y}$ | Köşegen yansıma ortalaması |
+| 5 | $\frac{1}{4}(s_{1y}+s_{2y}+s_{3y}+s_{4y}) - s_{0y}$ | Tam simetri ortalaması |
+
+### Sonuç ve Gözlem
+
+Simülasyonlar, symmetric betatron kombinasyonlarının space charge kaynaklı sahte EDM sinyalini **yaklaşık bir mertebe** (~10×) azalttığını göstermektedir. Ancak yüksek N_particles değerlerinde kalan sistematik hata hâlâ **~10²⁰ e·cm** mertebesindedir — bu değer fiziksel EDM hedefinin (~10²⁹ e·cm, Standart Model ötesi fizik için beklenen üst sınır) çok üzerindedir.
+
+**Fiziksel yorum:** Space charge alanı betatron faz uzayında doğrusal değildir; simetrik başlangıç koşullarının ortalaması alınırken doğrusal olmayan terimler tam iptal olmaz. Geriye kalan sahte EDM, space charge yoğunluğuyla (N/a²) ölçeklenir. Gerçek deneyde demeti seyrekleştirmek (düşük N) veya demet yarıçapını artırmak (büyük a) bu sistematik hatayı düşürmenin temel yoludur.
 
 ---
 
-## 12. Analitik Dönen Referans Sistemi (Rotating Frame)
+## 12. İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler
 
-C++ entegratöründe devasa 1115 Hz'lik spin dönüşlerini ("Topaç Etkisi") çok daha yüksek hassasiyetle incelemek için **Dönen Referans Sistemi (Rotating Frame)** geliştirilmiştir. 
+### Dikey Spinde DC Ofset (Geometrik Faz)
+Elektrik alanı ve EDM kapalı olmasına rağmen dikey başlangıç hızı olan bir parçacıkta ($\theta_{ver} \neq 0$) S_y'de DC ofset gözlemlenebilir. Bunun nedeni:
+$$S_y(t) \propto \int \sin(\omega_\beta t)\, dt = 1 - \cos(\omega_\beta t)$$
+Bu ifadenin sıfırdan büyük DC bileşeni vardır. Gerçek bir demetin trilyonlarca rastgele fazlı protonunun ortalaması alındığında bu ofsetler birbirini sönümler.
 
-- **Sorun (Catastrophic Cancellation):** Spin-Wheel sinyalleri veya `N_particles` etkisi, spin dönüş frekansını $10^{-6}$ Hz gibi mikroskobik değerlerde değiştirir. Çözücü, her adımda ana frekans olan 1115 Hz'in üstüne bu mikroskobik etkiyi eklerken, `double` veri tipinin 15 hanelik sınırlarına takılır. Mikroskobik sapmalar yuvarlama gürültüsü içinde ezilir.
-- **Çözüm:** Simülasyonun `params.json` dosyasındaki `base_spin_freq` parametresine taban frekans girildiğinde, C++ entegratörü BMT denkleminden bu frekansı **matematiksel olarak çıkartır**.
-- **Sonuç:** İntegratör artık 1115 Hz'i değil, *sadece mikroskobik sapmayı* ($10^{-6}$ Hz) hesaplar. Sayı $10^{-8}$ gibi çok küçük bir değer etrafında birikirken kendine ait 15 hanelik float hassasiyetini korur. 
-Böylece Python analizi (Eğri Uydurma) kusursuz bir doğrulukla `Delta_f` değerini tespit eder ve ekranda toplayarak gerçek frekansı yazar. Toplam spin büyüklüğü C++ GL4 integratörü (cross-product) sayesinde daima mükemmel olarak 1 korunur.
+### Spin-Yörünge Yan Bantları (~1462 Hz)
+Hareketli ortalama filtresi sonrası ~1462 Hz'de ortaya çıkan sinyal bir hata değildir. Yatay betatron salınımı ($Q_x$) kuadrupollerdeki manyetik alanı modüle ederek Spin Tune ($\nu_s$) ile vuruntuya (beating) girer. 6. devir harmonikle katlanma (aliasing) sonucu:
+$$\Delta Q = |Q_x - \nu_s - 6| \approx 0.0067 \quad \Rightarrow \quad f = 0.0067 \times f_{rev} \approx 1462\ \text{Hz}$$
+Bu simülatörün ikinci mertebe **Intrinsic Spin Resonance** yan bantlarını yakalayabildiğinin göstergesidir.
 
 ---
 
 ## 13. Kurulum ve Çalıştırma
 
 ### Gereksinimler
-Sinyal işleme kütüphaneleri için Python `p39` environment'ının aktif olması önerilir:
 ```bash
 pip install numpy scipy matplotlib
 ```
 
 ### Derleme
-Simülatörün C++ motorunu derleyin:
 ```bash
-# macOS için:
+# Linux:
+g++ -O3 -shared -fPIC -o lib_integrator.so integrator.cpp
+
+# macOS:
 g++ -O3 -shared -fPIC -o integrator.dylib integrator.cpp
 ```
 
-### Adım Adım Kullanım
-1. **Fizik Simülasyonunu Çalıştırma** (Spin ve yörünge entegrasyonu):
-   ```bash
-   python run_simulation.py
-   ```
-2. **Görselleştirme ve Spin-Wheel Analizi**:
-   ```bash
-   python plot_results.py
-   ```
+### Temel Kullanım
+
+**Tekil simülasyon:**
+```bash
+python run_simulation.py    # → simulation_data.txt
+python plot_results.py      # → simulasyon_sonuclari.png
+```
+
+**İdeal referans ile diferansiyel analiz** (`params.json`: `"simulate_ideal": 1`):
+```bash
+python run_simulation.py    # → simulation_data.txt + simulation_data_ideal.txt
+python plot_results.py      # → ΔS_y paneli otomatik aktif olur
+```
+
+**5 parçacık betatron analizi** (`params.json`: `"theta0": 1e-5`):
+```bash
+python run_5_particles.py          # → particle_0.txt … particle_4.txt
+python plot_5_particle_results.py  # → betatron_spin.png
+```
+
+### `params.json` Hızlı Referans
+
+```json
+{
+    "simulate_ideal": 1,
+    "theta0": 1e-5,
+    "E0ver": 1e4,
+    "EDMSwitch": 0,
+    "EDM_ETA": 1.88e-15,
+    "N_particles": 1e9,
+    "t2": 0.02,
+    "return_steps": 10000
+}
+```
