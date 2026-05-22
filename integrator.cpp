@@ -159,37 +159,41 @@ void get_electromagnetic_fields(double t, const double* r, const double* field_p
     if (N_particles > 0.0 && beam_radius_a > 0.0) {
         double R0 = field_params[0];
         double R = std::sqrt(r[0]*r[0] + r[1]*r[1]);
-        
+        double dir_sc = field_params[11];  // beam direction: ±1
+
         double K_sc = (N_particles * Q_E) / (3.49626017e-10 * R0 * beam_radius_a * beam_radius_a);
-        
+
         double E_sc_X = 0.0, E_sc_Y = 0.0, E_sc_Z = 0.0;
         double B_sc_X = 0.0, B_sc_Y = 0.0, B_sc_Z = 0.0;
         double beta_magic_over_c = 1.9959777e-9;
-        
+
         if (element_type == 0) {
             E_sc_X = K_sc * (r[0] - R0 * r[0] / R);
             E_sc_Y = K_sc * (r[1] - R0 * r[1] / R);
             E_sc_Z = K_sc * r[2];
-            
+
             double X_R = r[0] / R;
             double Y_R = r[1] / R;
-            B_sc_X = beta_magic_over_c * (X_R * E_sc_Z);
-            B_sc_Y = beta_magic_over_c * (Y_R * E_sc_Z);
-            B_sc_Z = beta_magic_over_c * (-Y_R * E_sc_Y - X_R * E_sc_X);
+            // B_sc = (β_beam × E_sc) / c. β̂_CCW = (-Y_R, X_R, 0); CW için ters.
+            // dir_sc ile çarparak doğru yön elde edilir.
+            B_sc_X = beta_magic_over_c * (X_R * E_sc_Z) * dir_sc;
+            B_sc_Y = beta_magic_over_c * (Y_R * E_sc_Z) * dir_sc;
+            B_sc_Z = beta_magic_over_c * (-Y_R * E_sc_Y - X_R * E_sc_X) * dir_sc;
         } else {
             E_sc_X = K_sc * (r[0] - R0);
             E_sc_Y = 0.0;
             E_sc_Z = K_sc * r[2];
-            
-            B_sc_X = beta_magic_over_c * E_sc_Z;
+
+            // Drift/quad: parçacık ≈(R0,0) civarında, β̂_CCW≈(0,1,0); CW ters.
+            B_sc_X =  beta_magic_over_c * E_sc_Z * dir_sc;
             B_sc_Y = 0.0;
-            B_sc_Z = -beta_magic_over_c * E_sc_X;
+            B_sc_Z = -beta_magic_over_c * E_sc_X * dir_sc;
         }
-        
+
         E[0] += E_sc_X;
         E[1] += E_sc_Y;
         E[2] += E_sc_Z;
-        
+
         B[0] += B_sc_X;
         B[1] += B_sc_Y;
         B[2] += B_sc_Z;
