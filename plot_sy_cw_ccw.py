@@ -46,8 +46,11 @@ T_rev = 2 * np.pi * R0 / (beta0 * C)
 # Argümanlar
 # ---------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--edm", action="store_true", help="EDM açık")
-parser.add_argument("--sc",  action="store_true", help="Uzay yükü açık (N=1e8)")
+parser.add_argument("--edm",   action="store_true", help="EDM açık")
+parser.add_argument("--sc",    action="store_true", help="Uzay yükü açık (N=1e8)")
+parser.add_argument("--fodo",  action="store_true", help="FODO quad'ları açık")
+parser.add_argument("--E0ver", type=float, default=0.0,
+                    help="Dikey elektrik alan (V/m), varsayılan=0 (frozen spin için)")
 parser.add_argument("--t",   type=float, default=5.0, help="t_end (ms), varsayılan=5")
 parser.add_argument("--steps", type=int, default=5000, help="return_steps")
 parser.add_argument("--out", type=str, default="sy_cw_ccw.png", help="Çıktı dosyası")
@@ -67,13 +70,13 @@ def make_fields(direction):
     f.E0_power   = 1.0
     f.quadK1     = 0.6
     f.quadK0     = 0.6
-    f.quadSwitch = 1.0
+    f.quadSwitch = 1.0 if args.fodo else 0.0
     f.sextSwitch = 0.0
     f.direction  = float(direction)
     f.nFODO      = 24.0
     f.quadLen    = 0.4
     f.driftLen   = 2.0833
-    f.E0ver      = 1e4
+    f.E0ver      = args.E0ver          # varsayılan 0: frozen spin bozulmaz
     f.EDMSwitch  = 1.0 if args.edm else 0.0
     f.EDM_ETA    = 1.88e-15
     f.N_particles    = 1e8 if args.sc else 0.0
@@ -146,9 +149,11 @@ print(f"Fark: Δf = {abs(f_cw - f_ccw):.2f} Hz")
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(3, 1, figsize=(13, 11))
 
-tag_edm = " | EDM açık" if args.edm else ""
-tag_sc  = " | SC açık"  if args.sc  else ""
-fig.suptitle(f"Tek parçacık spin — CW vs CCW{tag_edm}{tag_sc}  "
+tag_edm  = " | EDM açık"  if args.edm  else ""
+tag_sc   = " | SC açık"  if args.sc   else ""
+tag_fodo = " | FODO açık" if args.fodo else " | saf E"
+tag_ever = f" | E0ver={args.E0ver:.0e}" if args.E0ver != 0 else ""
+fig.suptitle(f"Tek parçacık spin — CW vs CCW{tag_fodo}{tag_edm}{tag_sc}{tag_ever}  "
              f"(t_end={args.t} ms, boylamsal başlangıç)", fontsize=13)
 
 # — Panel 1: Sy dikey(t) — EDM sinyali burada büyür
