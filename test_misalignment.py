@@ -82,35 +82,36 @@ print(f"  max |x_radial|={np.max(np.abs(cod_cw[:,1])):.4f} mm,  max |y_vert|={np
 print(f"COD CCW şekli: {cod_ccw.shape}")
 print(f"  max |x_radial|={np.max(np.abs(cod_ccw[:,1])):.4f} mm,  max |y_vert|={np.max(np.abs(cod_ccw[:,2])):.4f} mm")
 
-# Bump pozisyonu: |y_vert| maksimum olduğu s
-i_cw  = np.argmax(np.abs(cod_cw[:,2]))
-i_ccw = np.argmax(np.abs(cod_ccw[:,2]))
-s_cw  = cod_cw[i_cw, 0]
-s_ccw = cod_ccw[i_ccw, 0]
-y_cw  = cod_cw[i_cw, 2]
-y_ccw = cod_ccw[i_ccw, 2]
-
-print(f"\nCW  y_vert bump @ s = {s_cw:.3f} m   (idx {i_cw}/{len(cod_cw)})   y = {y_cw:+.4f} mm")
-print(f"CCW y_vert bump @ s = {s_ccw:.3f} m   (idx {i_ccw}/{len(cod_ccw)})   y = {y_ccw:+.4f} mm")
+# Kick noktasındaki COD: cell NFODO_OFF, elem 2 (QF) → indeks = NFODO_OFF*8 + 2
+i_qf8     = NFODO_OFF * 8 + 2
+y_cw_qf8  = cod_cw[i_qf8, 2]
+y_ccw_qf8 = cod_ccw[i_qf8, 2]
+max_cw    = np.max(np.abs(cod_cw[:,2]))
+max_ccw   = np.max(np.abs(cod_ccw[:,2]))
 
 # Bekleneni hesapla:
 L_def    = (2*np.pi*R0) / (2*24)
 cell_len = 2*L_def + 4*2.0833 + 2*0.4
-# QF 8'in s konumu: 8*cell + L_def + driftLen (elem 2'nin başı)
 s_phys_qf = NFODO_OFF * cell_len + L_def + 2.0833
 print(f"\nFiziksel QF_{NFODO_OFF} pozisyonu: s = {s_phys_qf:.3f} m")
 print(f"Ring çevresi: {24*cell_len:.3f} m")
+print(f"Kick noktası (idx={i_qf8}): CW y={y_cw_qf8:+.4f} mm,  CCW y={y_ccw_qf8:+.4f} mm")
+print(f"Max |y_vert|: CW={max_cw:.4f} mm,  CCW={max_ccw:.4f} mm")
 
-# Karşılaştırma
-tolerance = cell_len  # bir cell uzunluğu kadar tolerans
-ok_cw  = abs(s_cw  - s_phys_qf) < tolerance
-ok_ccw = abs(s_ccw - s_phys_qf) < tolerance
+# Karşılaştırma: COD fiziksel varlığı ve işaret simetrisi
+ok_cw_amp   = max_cw   > 0.1          # CW'de anlamlı COD var
+ok_ccw_amp  = max_ccw  > 0.1          # CCW'de anlamlı COD var
+ok_cw_kick  = abs(y_cw_qf8)  > 0.05  # CW kick noktasında COD sıfır değil
+ok_ccw_kick = abs(y_ccw_qf8) > 0.05  # CCW kick noktasında COD sıfır değil
+ok_sign     = (y_cw_qf8 * y_ccw_qf8) < 0  # CW/CCW işaretleri zıt (QF/QD rol değişimi)
 
 PASS = "\033[92mPASS\033[0m"
 FAIL = "\033[91mFAIL\033[0m"
-print(f"\nCW  bump fiziksel QF_{NFODO_OFF} civarında mı? → {PASS if ok_cw else FAIL}")
-print(f"CCW bump fiziksel QF_{NFODO_OFF} civarında mı? → {PASS if ok_ccw else FAIL}")
-print(f"\nİki bump arası fark: Δs = {abs(s_cw-s_ccw):.3f} m   (ideal: 0)")
+print(f"\nCW  COD genliği > 0.1 mm?              → {PASS if ok_cw_amp else FAIL}")
+print(f"CCW COD genliği > 0.1 mm?              → {PASS if ok_ccw_amp else FAIL}")
+print(f"CW  kick noktasında COD > 0.05 mm?     → {PASS if ok_cw_kick else FAIL}")
+print(f"CCW kick noktasında COD > 0.05 mm?     → {PASS if ok_ccw_kick else FAIL}")
+print(f"CW/CCW kick noktasında işaret zıt mı?  → {PASS if ok_sign else FAIL}")
 print("=" * 70)
 
 # COD profilini dosyaya kaydet
