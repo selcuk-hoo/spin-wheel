@@ -1,7 +1,7 @@
 # 6D Proton EDM & Spin-Wheel Depolama Halkası Simülatörü
 
 **Yazar:** Selcuk H.  
-**Güncel Sürüm:** v3.2
+**Güncel Sürüm:** v3.3
 
 Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 6 boyutlu bir depolama halkası simülasyonudur. Parçacık dinamiği ve spin presesyonu C++ ile yüksek hassasiyetle çözülür; parametre yönetimi, sinyal analizi ve görselleştirme Python katmanında yapılır.
 
@@ -22,6 +22,7 @@ Bu proje, Proton Elektrik Dipol Momenti (EDM) deneyleri için tasarlanmış tam 
 11. [Betatron Spin Analizi: 5 Parçacık Yöntemi](#11-betatron-spin-analizi-5-parçacık-yöntemi)
 12. [İleri Seviye Spin Dinamikleri ve Fiziksel Gözlemler](#12-i̇leri-seviye-spin-dinamikleri-ve-fiziksel-gözlemler)
 13. [Kurulum ve Çalıştırma](#13-kurulum-ve-çalıştırma)
+14. [Sürüm Geçmişi](#14-sürüm-geçmişi)
 
 ---
 
@@ -304,3 +305,83 @@ python plot_5_particle_results.py  # → betatron_spin.png
     "return_steps": 10000
 }
 ```
+
+---
+
+## 14. Sürüm Geçmişi
+
+### v3.3 — CW/CCW Yön Düzeltmeleri ve Spin Doğrulama Araçları
+
+Bu sürüm, simülatörün saat yönünde (CW, `direction = -1`) ve saat yönünün tersinde (CCW, `direction = +1`) çalıştırılması sırasında ortaya çıkan üç kritik fizik hatasını giderir; aynı zamanda bu hataları tespit eden test altyapısını ve yeni analiz araçlarını ekler.
+
+---
+
+#### 14.1 `integrator.cpp` — Düzeltilen Fizik Hataları
+
+**1. Uzay Yükü Manyetik Alanı (`B_sc`) İşaret Hatası**
+
+Uzay yükü manyetik alanı Thomas-BMT denklemine `B_sc = β × E_sc / c` olarak girer. `β` ışın yönüyle tersine döndüğünden (`β_CCW = −β_CW`) `B_sc` iki yönde zıt işaretli olmalıdır. v3.2'de `direction` faktörü gereksiz yere formüle eklenmişti; dönen referans çerçevesi düzeltmesiyle birlikte hatalı bir katlama üretiyordu. Bu yüzden uzay yükü açıkken SC kaynaklı sahte EDM sinyalinin işareti yöne bakılmaksızın aynı çıkıyordu.
+
+**Düzeltme:** `β`'nın yöne bağımlı işareti formüle doğal olarak yansıdığı için ayrıca `direction` çarpımı kaldırıldı. Doğrulama: SC açıkken CW ve CCW'de `S_y` kayması zıt işaretli olmalı — sağlandı ✓
+
+**2. CCW Yönünde FODO Hücre Geçiş Sırası**
+
+CW ilerleyişte parçacık hücreleri 0→1→…→23 sırasıyla geçer; CCW'de fiziksel sıra 23→22→…→0'dır. v3.2'de CCW parçacığı da CW ile aynı sırayla ilerliyor, dolayısıyla yanlış quadrupol ve yay elemanlarını ziyaret ediyordu.
+
+**Düzeltme:** `current_fodo` hesabında CCW için ayna-eşleme, hücre içi eleman sırasında da ters çevrim uygulandı. Bunun sonucunda:
+- Her iki yönde QF ve QD quadrupolleri doğru sırayla ziyaret edilir.
+- Hizalama hatası (`B0hor`) uygulandığında CW ve CCW COD profilleri kick noktasında zıt işaretli olur — sağlandı ✓
+- Beta fonksiyonu ölçümleri CW/CCW için simetrik çıkar — sağlandı ✓
+
+**3. Boylamsal Manyetik Alan (`B0long`) Yön İşareti**
+
+`B0long`, ışın yönü boyunca tanımlanan boylamsal bir manyetik alandır. CW ve CCW için teğet yönler zıt olduğundan `B0long`'un lab-çerçevesindeki gösterimi de işaret değiştirmelidir. `long_sign = −dir_field` çarpımı eklenerek bu simetri sağlandı.
+
+---
+
+#### 14.2 Spin Sütun Sözleşmesi (Referans)
+
+`integrator.py` çıktısındaki `hist` dizisinin fiziksel karşılıkları:
+
+| `hist` sütunu | Fiziksel anlam | Not |
+|:---:|---|---|
+| `[:,1]` | **Dikey konum** (mm) | |
+| `[:,2]` | Yay uzunluğu s (m) | Dikey konum **değil** |
+| `[:,7]` | **Dikey spin** Sz | EDM sinyali burada birikir; başlangıçta 0 |
+| `[:,8]` | **Boylamsal spin** Sy | Başlangıçta ±1 (momentum yönünde) |
+
+Boylamsal başlangıç polarizasyonu için doğru başlangıç koşulu:
+`y0_local = [0, 0, 0, 0, 0, p_mag × direction, 0, 0, direction]`
+
+---
+
+#### 14.3 Yeni Test Betikleri
+
+| Betik | Ne test eder? |
+|-------|--------------|
+| `test_direction.py` | Spin normu korunumu, CW=CCW spin frekansı, SC kaynaklı `S_y` kaymalarının zıt işaretli olması |
+| `test_misalignment.py` | Hizalama hatasının her iki yönde COD oluşturduğunu ve kick noktasındaki değerlerin zıt işaretli olduğunu doğrular (v3.2'deki hatalı "bump konumu" iddiası kaldırıldı) |
+| `test_beta.py` | FODO beta fonksiyonunun CW/CCW simetrisini Poincaré yöntemiyle ölçer; `β_x(QF)/β_x(QD) ≈ 2.85`, iki yön arasında `<2%` fark ✓ |
+| `analyze_cod_test.py` | `test_misalignment.py` çıktısını okuyarak CW/CCW COD profillerini grafik olarak karşılaştırır |
+
+---
+
+#### 14.4 Yeni Analiz Betiği: `plot_sy_cw_ccw.py`
+
+CW ve CCW tek parçacık spin simülasyonunu aynı anda çalıştırır; 3 panelli grafik üretir: dikey spin `S_y(t)`, fark `ΔS_y = S_y^CCW − S_y^CW` (lineer fit ile), boylamsal spin + FFT.
+
+```bash
+python plot_sy_cw_ccw.py               # saf elektrik, EDM/SC kapalı
+python plot_sy_cw_ccw.py --edm         # EDM açık (η = 1.88×10⁻¹⁵)
+python plot_sy_cw_ccw.py --sc          # uzay yükü açık (N = 10⁸)
+python plot_sy_cw_ccw.py --fodo        # FODO quadrupolleri açık
+python plot_sy_cw_ccw.py --E0ver 1e4   # Spin-Wheel sürücüsü (frozen spin bozulur, bkz. aşağı)
+python plot_sy_cw_ccw.py --t 10        # t_end = 10 ms
+```
+
+> **Önemli — `E0ver` ve frozen spin:** `E0ver` varsayılanı **0**'dır. Frozen spin koşulu yalnızca radyal elektrik alan için geçerlidir; `E0ver ≠ 0` kompanse edilmediğinden ~5000 rad/s MDM presesyonu üreterek hem EDM sinyalini ezer hem de CW/CCW yön simetrisini bozar. Saf EDM testleri için `E0ver = 0` kullanılmalıdır. Spin-Wheel sürücüsü analizi için `--E0ver 1e4` açıkça belirtilmelidir.
+
+EDM yön doğrulaması (`η = 10⁻³`, saf elektrik halka, `E0ver = 0`):
+- CW dikey spin: `Δ = −0.254` (negatif — elektrik alan CW için sola bakıyor)
+- CCW dikey spin: `Δ = +0.254` (pozitif — elektrik alan CCW için sağa bakıyor)
+- Zıt yönde ✓, tam simetrik ✓
