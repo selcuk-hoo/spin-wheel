@@ -101,23 +101,29 @@ hist_cw  = run(-1)
 print("CCW (dir=+1) simüle ediliyor…")
 hist_ccw = run(+1)
 
-# Zaman ekseni (return_steps aralıklı kaydedildi)
-dt_save = t_end / return_steps
-t_ms    = np.linspace(0, t_end * 1e3, len(hist_cw))
+# Zaman ekseni
+t_ms = np.linspace(0, t_end * 1e3, len(hist_cw))
 
-# Sy = hist[:, 8]  (global Y spin bileşeni; integrator.py dönüşüm tablosu)
-sy_cw  = hist_cw[:,  8]
-sy_ccw = hist_ccw[:, 8]
-diff   = sy_ccw - sy_cw
+# Koordinat tablosu (integrator.py convert_global_to_local_matrix):
+#   hist[:,6] = Sx_global  → radyal spin
+#   hist[:,7] = Sz_global  → DİKEY spin  (fizik notasyonunda Sy)
+#   hist[:,8] = Sy_global  → BOYLAMSAL spin (Ss; başlangıçta ±1)
+sy_vert_cw  = hist_cw[:,  7]   # dikey — EDM sinyali burada
+sy_vert_ccw = hist_ccw[:, 7]
+ss_long_cw  = hist_cw[:,  8]   # boylamsal — başlangıçta ±1 (doğru)
+ss_long_ccw = hist_ccw[:, 8]
+diff        = sy_vert_ccw - sy_vert_cw
 
 # Spin normu kontrolü
 norm_cw  = np.sqrt(hist_cw[:,6]**2  + hist_cw[:,7]**2  + hist_cw[:,8]**2)
 norm_ccw = np.sqrt(hist_ccw[:,6]**2 + hist_ccw[:,7]**2 + hist_ccw[:,8]**2)
 print(f"Spin normu  CW : ort={norm_cw.mean():.7f}  std={norm_cw.std():.2e}")
 print(f"Spin normu CCW : ort={norm_ccw.mean():.7f}  std={norm_ccw.std():.2e}")
+print(f"Boylamsal spin başlangıcı  CW={ss_long_cw[0]:+.4f}  CCW={ss_long_ccw[0]:+.4f}  (±1 → boylamsal ok)")
+print(f"Dikey spin başlangıcı      CW={sy_vert_cw[0]:+.4f}  CCW={sy_vert_ccw[0]:+.4f}  (0 → beklenen)")
 
 # ---------------------------------------------------------------------------
-# FFT — spin frekansı
+# FFT — spin frekansı (boylamsal bileşenden — orada osilasyon en belirgin)
 # ---------------------------------------------------------------------------
 def fft_peak(sig, dt, f_lo=200.0, f_hi=3000.0):
     N    = len(sig)
@@ -128,9 +134,9 @@ def fft_peak(sig, dt, f_lo=200.0, f_hi=3000.0):
     idx  = np.argmax(amp[mask])
     return freq[mask][idx], amp, freq
 
-dt_s = t_end / len(sy_cw)
-f_cw,  amp_cw,  freq_cw  = fft_peak(sy_cw,  dt_s)
-f_ccw, amp_ccw, freq_ccw = fft_peak(sy_ccw, dt_s)
+dt_s = t_end / len(ss_long_cw)
+f_cw,  amp_cw,  freq_cw  = fft_peak(ss_long_cw,  dt_s)
+f_ccw, amp_ccw, freq_ccw = fft_peak(ss_long_ccw, dt_s)
 print(f"FFT spin frekansı  CW : {f_cw:.2f} Hz")
 print(f"FFT spin frekansı CCW : {f_ccw:.2f} Hz")
 print(f"Fark: Δf = {abs(f_cw - f_ccw):.2f} Hz")
@@ -142,49 +148,58 @@ fig, axes = plt.subplots(3, 1, figsize=(13, 11))
 
 tag_edm = " | EDM açık" if args.edm else ""
 tag_sc  = " | SC açık"  if args.sc  else ""
-fig.suptitle(f"Tek parçacık Sy — CW vs CCW{tag_edm}{tag_sc}  "
-             f"(t_end={args.t} ms)", fontsize=13)
+fig.suptitle(f"Tek parçacık spin — CW vs CCW{tag_edm}{tag_sc}  "
+             f"(t_end={args.t} ms, boylamsal başlangıç)", fontsize=13)
 
-# — Panel 1: Sy(t) —
-axes[0].plot(t_ms, sy_cw,  'b',   lw=0.8, label=f'CW (dir=-1),  f={f_cw:.1f} Hz')
-axes[0].plot(t_ms, sy_ccw, 'r--', lw=0.8, label=f'CCW (dir=+1), f={f_ccw:.1f} Hz')
-axes[0].set_ylabel('$S_y$')
+# — Panel 1: Sy dikey(t) — EDM sinyali burada büyür
+axes[0].plot(t_ms, sy_vert_cw,  'b',   lw=0.8, label='CW (dir=-1)')
+axes[0].plot(t_ms, sy_vert_ccw, 'r--', lw=0.8, label='CCW (dir=+1)')
+axes[0].set_ylabel('$S_y$ (dikey)')
 axes[0].set_xlabel('t (ms)')
+axes[0].set_title('Dikey spin bileşeni — EDM sinyali')
 axes[0].legend(fontsize=9)
 axes[0].grid(True, alpha=0.4)
 
-# — Panel 2: Fark ΔSy —
+# — Panel 2: Fark ΔSy dikey —
 axes[1].plot(t_ms, diff, 'g', lw=0.8)
-axes[1].set_ylabel(r'$\Delta S_y = S_y^{\rm CCW} - S_y^{\rm CW}$')
+axes[1].set_ylabel(r'$\Delta S_y^{\rm vert} = S_y^{\rm CCW} - S_y^{\rm CW}$')
 axes[1].set_xlabel('t (ms)')
+axes[1].set_title('CW−CCW dikey spin farkı')
 axes[1].grid(True, alpha=0.4)
-
-# lineer fit — drift varsa işaretle
 if len(diff) > 10:
     coeffs = np.polyfit(t_ms, diff, 1)
-    slope_per_s = coeffs[0] * 1e3   # ms → s
+    slope_per_s = coeffs[0] * 1e3
     fit_line = np.polyval(coeffs, t_ms)
     axes[1].plot(t_ms, fit_line, 'k--', lw=1.0,
                  label=f'Lineer fit: slope={slope_per_s:+.3e} /s')
     axes[1].legend(fontsize=9)
 
-# — Panel 3: FFT —
+# — Panel 3: Boylamsal Ss(t) + FFT — başlangıçta ±1, osilasyon frekansı spin frekansı
+ax3a = axes[2]
+ax3b = ax3a.twinx()
+ax3a.plot(t_ms, ss_long_cw,  'b',   lw=0.6, alpha=0.7, label=f'CW Ss,  f={f_cw:.1f} Hz')
+ax3a.plot(t_ms, ss_long_ccw, 'r--', lw=0.6, alpha=0.7, label=f'CCW Ss, f={f_ccw:.1f} Hz')
+ax3a.set_ylabel('$S_s$ (boylamsal)')
+ax3a.set_xlabel('t (ms)')
+ax3a.set_title(f'Boylamsal spin (başlangıç ±1) | spin frekansı CW={f_cw:.2f} Hz  CCW={f_ccw:.2f} Hz  Δf={abs(f_cw-f_ccw):.2f} Hz')
+ax3a.legend(fontsize=9, loc='upper left')
+ax3a.grid(True, alpha=0.4)
+
 f_mask = freq_cw < 4000
-axes[2].plot(freq_cw[f_mask],  amp_cw[f_mask],  'b',   lw=0.8, label='CW')
-axes[2].plot(freq_ccw[f_mask], amp_ccw[f_mask], 'r--', lw=0.8, label='CCW')
-axes[2].axvline(f_cw,  color='b', alpha=0.5, ls=':')
-axes[2].axvline(f_ccw, color='r', alpha=0.5, ls=':')
-axes[2].set_xlabel('f (Hz)')
-axes[2].set_ylabel('Genlik')
-axes[2].legend(fontsize=9)
-axes[2].grid(True, alpha=0.4)
+ax3b.plot(freq_cw[f_mask],  amp_cw[f_mask],  'b:',  lw=1.0, alpha=0.5)
+ax3b.plot(freq_ccw[f_mask], amp_ccw[f_mask], 'r:',  lw=1.0, alpha=0.5)
+ax3b.axvline(f_cw,  color='b', alpha=0.4, ls=':')
+ax3b.axvline(f_ccw, color='r', alpha=0.4, ls=':')
+ax3b.set_ylabel('FFT genlik', color='gray')
+ax3b.tick_params(axis='y', labelcolor='gray')
 
 plt.tight_layout()
 plt.savefig(args.out, dpi=130)
 print(f"\nGrafik kaydedildi: {args.out}")
 
-# Veriyi de kaydet
 np.savez("sy_cw_ccw_data.npz",
-         t_ms=t_ms, sy_cw=sy_cw, sy_ccw=sy_ccw,
+         t_ms=t_ms,
+         sy_vert_cw=sy_vert_cw, sy_vert_ccw=sy_vert_ccw,
+         ss_long_cw=ss_long_cw, ss_long_ccw=ss_long_ccw,
          diff=diff, f_cw=f_cw, f_ccw=f_ccw)
 print("Veri kaydedildi:   sy_cw_ccw_data.npz")
