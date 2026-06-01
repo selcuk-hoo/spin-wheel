@@ -310,9 +310,9 @@ python plot_5_particle_results.py  # → betatron_spin.png
 
 ## 14. Sürüm Geçmişi
 
-### v3.3 — CW/CCW Yön Düzeltmeleri ve Spin Doğrulama Araçları
+### v3.3 — CW/CCW Yön Tutarlılığı ve Spin Doğrulama Araçları
 
-Bu sürüm, simülatörün saat yönünde (CW, `direction = -1`) ve saat yönünün tersinde (CCW, `direction = +1`) çalıştırılması sırasında ortaya çıkan üç kritik fizik hatasını giderir; aynı zamanda bu hataları tespit eden test altyapısını ve yeni analiz araçlarını ekler.
+v3.2, tek yönlü (CW) simülasyonlar için geliştirilmişti. Simülatöre CCW (`direction = +1`) desteği eklendiğinde üç kritik fizik hatası gün yüzüne çıktı: her ikisi de aynı halkanın iki farklı yönde gezilen parçacıkları olmasına karşın kod bu simetriyi doğru yansıtmıyordu. Bu sürümde söz konusu hatalar giderildi, kapsamlı bir test altyapısı kuruldu ve CW/CCW spin davranışını görsel olarak incelemeye yarayan yeni bir analiz betiği eklendi.
 
 ---
 
@@ -320,68 +320,71 @@ Bu sürüm, simülatörün saat yönünde (CW, `direction = -1`) ve saat yönün
 
 **1. Uzay Yükü Manyetik Alanı (`B_sc`) İşaret Hatası**
 
-Uzay yükü manyetik alanı Thomas-BMT denklemine `B_sc = β × E_sc / c` olarak girer. `β` ışın yönüyle tersine döndüğünden (`β_CCW = −β_CW`) `B_sc` iki yönde zıt işaretli olmalıdır. v3.2'de `direction` faktörü gereksiz yere formüle eklenmişti; dönen referans çerçevesi düzeltmesiyle birlikte hatalı bir katlama üretiyordu. Bu yüzden uzay yükü açıkken SC kaynaklı sahte EDM sinyalinin işareti yöne bakılmaksızın aynı çıkıyordu.
+Uzay yükü manyetik alanı Thomas-BMT denklemine `B_sc = β × E_sc / c` olarak girer. CW ve CCW parçacıklarının hız vektörleri zıt yönlü olduğundan (`β_CCW = −β_CW`), `B_sc` alanı da iki yönde zıt işaretli olmalıdır — aksi hâlde her iki ışın da "aynı yönden" uzay yükü etkisi görüyor gibi davranır ve sahte EDM sinyali her iki yönde aynı işarette çıkar.
 
-**Düzeltme:** `β`'nın yöne bağımlı işareti formüle doğal olarak yansıdığı için ayrıca `direction` çarpımı kaldırıldı. Doğrulama: SC açıkken CW ve CCW'de `S_y` kayması zıt işaretli olmalı — sağlandı ✓
+v3.2'de `direction` faktörü gereksiz yere `B_sc` formülüne eklenmişti; bu, dönen referans çerçevesi düzeltmesiyle çakışarak hatalı bir katlama üretiyordu. Düzeltme: `β`'nın yöne bağımlı işareti formüle zaten doğal olarak yansıdığından ayrıca `direction` çarpımına gerek yoktu; kaldırıldı. Doğrulama: uzay yükü açıkken CW ve CCW'de `S_y` kayması zıt işaretli — sağlandı ✓
 
 **2. CCW Yönünde FODO Hücre Geçiş Sırası**
 
-CW ilerleyişte parçacık hücreleri 0→1→…→23 sırasıyla geçer; CCW'de fiziksel sıra 23→22→…→0'dır. v3.2'de CCW parçacığı da CW ile aynı sırayla ilerliyor, dolayısıyla yanlış quadrupol ve yay elemanlarını ziyaret ediyordu.
+Depolama halkasında parçacık CW gidişte hücreleri 0→1→…→23 sırasıyla, CCW gidişte ise 23→22→…→0 sırasıyla geçer. İki yönde QF ve QD quadrupollerinin rolleri değişir: bir yönde yatayda odaklayıcı olan mıknatıs, diğer yönde dikeyde odaklayıcıdır. v3.2'de CCW parçacığı da CW ile özdeş hücre sırasını izliyordu; bu nedenle hem odaklama dinamikleri hem de hizalama hatası tepkileri yanlış hesaplanıyordu.
 
-**Düzeltme:** `current_fodo` hesabında CCW için ayna-eşleme, hücre içi eleman sırasında da ters çevrim uygulandı. Bunun sonucunda:
-- Her iki yönde QF ve QD quadrupolleri doğru sırayla ziyaret edilir.
-- Hizalama hatası (`B0hor`) uygulandığında CW ve CCW COD profilleri kick noktasında zıt işaretli olur — sağlandı ✓
-- Beta fonksiyonu ölçümleri CW/CCW için simetrik çıkar — sağlandı ✓
+Düzeltme: `current_fodo` hesabında CCW için ayna-eşleme, hücre içi eleman sırasında da ters çevrim uygulandı. Sonuçlar: her iki yönde QF/QD rolleri doğru; hizalama hatasına verilen COD tepkisi kick noktasında CW ve CCW'de zıt işaretli ✓; beta fonksiyonu oranları her iki yönde `<2%` farkla simetrik ✓
 
 **3. Boylamsal Manyetik Alan (`B0long`) Yön İşareti**
 
-`B0long`, ışın yönü boyunca tanımlanan boylamsal bir manyetik alandır. CW ve CCW için teğet yönler zıt olduğundan `B0long`'un lab-çerçevesindeki gösterimi de işaret değiştirmelidir. `long_sign = −dir_field` çarpımı eklenerek bu simetri sağlandı.
+`B0long`, ışın boyunca tanımlanan boylamsal bir manyetik alandır. CW ve CCW için teğet yönler fiziksel olarak zıt olduğundan bu alanın lab çerçevesindeki gösterimi de işaret değiştirmelidir. `long_sign = −dir_field` çarpımı eklenerek simetri sağlandı.
 
 ---
 
 #### 14.2 Spin Sütun Sözleşmesi (Referans)
 
-`integrator.py` çıktısındaki `hist` dizisinin fiziksel karşılıkları:
+`integrator.py`'nin döndürdüğü `hist` dizisinde global Kartezyen koordinatlar yerel Frenet-Serret çerçevesine dönüştürülür. İsim benzerliğinden kaynaklanan iki karışıklık dikkat gerektirir:
 
-| `hist` sütunu | Fiziksel anlam | Not |
+| `hist` sütunu | Fiziksel anlam | Dikkat |
 |:---:|---|---|
-| `[:,1]` | **Dikey konum** (mm) | |
-| `[:,2]` | Yay uzunluğu s (m) | Dikey konum **değil** |
-| `[:,7]` | **Dikey spin** Sz | EDM sinyali burada birikir; başlangıçta 0 |
-| `[:,8]` | **Boylamsal spin** Sy | Başlangıçta ±1 (momentum yönünde) |
+| `[:,1]` | **Dikey konum** Z (m) | — |
+| `[:,2]` | Yay uzunluğu s (m) | Dikey konum **değil**; 1 devir ≈ 600 m büyür |
+| `[:,7]` | **Dikey spin** Sz | EDM sinyali burada yavaşça birikir; başlangıçta 0 |
+| `[:,8]` | **Boylamsal spin** Sy | Momentum yönünde; başlangıçta ±1 |
 
-Boylamsal başlangıç polarizasyonu için doğru başlangıç koşulu:
-`y0_local = [0, 0, 0, 0, 0, p_mag × direction, 0, 0, direction]`
+`hist[:,8]` global Y eksenine karşılık gelir ve θ=0'da teğet yönü gösterir. İsmi "Sy" olsa da fiziksel anlamı **boylamsal polarizasyon**dur; EDM ölçümünde izlenmesi gereken **dikey** bileşen `hist[:,7]`'dir. Boylamsal başlangıç polarizasyonu için başlangıç koşulu: `y0_local = [0, 0, 0, 0, 0, p_mag × direction, 0, 0, direction]`.
 
 ---
 
 #### 14.3 Yeni Test Betikleri
 
-| Betik | Ne test eder? |
-|-------|--------------|
-| `test_direction.py` | Spin normu korunumu, CW=CCW spin frekansı, SC kaynaklı `S_y` kaymalarının zıt işaretli olması |
-| `test_misalignment.py` | Hizalama hatasının her iki yönde COD oluşturduğunu ve kick noktasındaki değerlerin zıt işaretli olduğunu doğrular (v3.2'deki hatalı "bump konumu" iddiası kaldırıldı) |
-| `test_beta.py` | FODO beta fonksiyonunun CW/CCW simetrisini Poincaré yöntemiyle ölçer; `β_x(QF)/β_x(QD) ≈ 2.85`, iki yön arasında `<2%` fark ✓ |
-| `analyze_cod_test.py` | `test_misalignment.py` çıktısını okuyarak CW/CCW COD profillerini grafik olarak karşılaştırır |
+Üç doğrulama betiği ve bir yardımcı görselleştirme betiği eklendi:
+
+**`test_direction.py`** — CW/CCW temel simetri testlerini çalıştırır: spin normu her iki yönde `|S| = 1.000000` (GL4 simplektik korunumu), spin presesyon frekansı CW = CCW (sihirli momentumda yöne bağımsız), uzay yükü açıkken `S_y` kayması CW ve CCW'de zıt işaretli.
+
+**`test_misalignment.py`** — 8. quadrupole hizalama hatası (`B0hor = 10⁻⁴ T`) uygulanır ve kapalı yörünge bozulması (COD) incelenir. v3.2'de hatalı bir fizik varsayımı vardı: FODO halkasında COD maksimumu kick noktasında değil, beta fonksiyonunun yüksek olduğu noktada oluşur. Test, bu gerçeği yansıtacak şekilde yeniden yazıldı: her iki yönde anlamlı COD genliği oluştuğunu, kick quadrupolünde sıfırdan farklı sapma olduğunu ve CW/CCW değerlerinin kick noktasında zıt işaretli olduğunu doğrular.
+
+**`test_beta.py`** — Küçük başlangıç sapmaları ile Poincaré kesitlerinden FODO beta fonksiyonu ölçülür. `β_x(QF)/β_x(QD) ≈ 2.85`; CW ve CCW arasında `<2%` fark ✓. Bu betik geliştirilirken üç hata giderildi: yanlış başlangıç koşulu sözleşmesi (teğet momentum `pz` yerine dikey momentum `py` olarak ayarlanmıştı), dikey konum yerine yay uzunluğu sütununun kullanılması ve QF/QD Poincaré etiketlerinin yer değiştirmesi.
+
+**`analyze_cod_test.py`** — `test_misalignment.py` çıktısından CW/CCW COD profillerini çizer; hücre sınırları ve kick quadrupolünün konumu işaretlenir.
 
 ---
 
 #### 14.4 Yeni Analiz Betiği: `plot_sy_cw_ccw.py`
 
-CW ve CCW tek parçacık spin simülasyonunu aynı anda çalıştırır; 3 panelli grafik üretir: dikey spin `S_y(t)`, fark `ΔS_y = S_y^CCW − S_y^CW` (lineer fit ile), boylamsal spin + FFT.
+CW ve CCW tek parçacık simülasyonlarını art arda çalıştırır ve üç panelli karşılaştırma grafiği üretir: (1) dikey spin `S_y(t)` her iki yön için, (2) fark `ΔS_y = S_y^CCW − S_y^CW` ile lineer drift tahmini, (3) boylamsal spin `S_s(t)` ve FFT spin frekansı.
 
 ```bash
-python plot_sy_cw_ccw.py               # saf elektrik, EDM/SC kapalı
+python plot_sy_cw_ccw.py               # Temel: saf elektrik halkası, EDM/SC kapalı
 python plot_sy_cw_ccw.py --edm         # EDM açık (η = 1.88×10⁻¹⁵)
-python plot_sy_cw_ccw.py --sc          # uzay yükü açık (N = 10⁸)
+python plot_sy_cw_ccw.py --sc          # Uzay yükü açık (N = 10⁸)
 python plot_sy_cw_ccw.py --fodo        # FODO quadrupolleri açık
-python plot_sy_cw_ccw.py --E0ver 1e4   # Spin-Wheel sürücüsü (frozen spin bozulur, bkz. aşağı)
+python plot_sy_cw_ccw.py --E0ver 1e4   # Spin-Wheel sürücüsü
 python plot_sy_cw_ccw.py --t 10        # t_end = 10 ms
 ```
 
-> **Önemli — `E0ver` ve frozen spin:** `E0ver` varsayılanı **0**'dır. Frozen spin koşulu yalnızca radyal elektrik alan için geçerlidir; `E0ver ≠ 0` kompanse edilmediğinden ~5000 rad/s MDM presesyonu üreterek hem EDM sinyalini ezer hem de CW/CCW yön simetrisini bozar. Saf EDM testleri için `E0ver = 0` kullanılmalıdır. Spin-Wheel sürücüsü analizi için `--E0ver 1e4` açıkça belirtilmelidir.
+**`E0ver` ve frozen spin sözleşmesi:** Magic momentum koşulu, spin presesyonunu yalnızca *radyal* elektrik alan (`E₀`) için dondurur. `E0ver ≠ 0` dikey bileşen ise dengelenmediğinden yaklaşık 5000 rad/s MDM presesyonu üretir; bu, EDM sinyalini tamamen eze ve CW/CCW yön simetrisini bozar. Varsayılan `E0ver = 0`'dır. EDM karakterizasyonu için bu değer korunmalıdır; Spin-Wheel sürücüsü analizleri için `--E0ver 1e4` açıkça belirtilmelidir.
 
-EDM yön doğrulaması (`η = 10⁻³`, saf elektrik halka, `E0ver = 0`):
-- CW dikey spin: `Δ = −0.254` (negatif — elektrik alan CW için sola bakıyor)
-- CCW dikey spin: `Δ = +0.254` (pozitif — elektrik alan CCW için sağa bakıyor)
-- Zıt yönde ✓, tam simetrik ✓
+**EDM yön doğrulaması** (`η = 10⁻³`, `E0ver = 0`): İki yönde momentum yönünde başlatılan spinler, radyal elektrik alanı birbirlerine göre zıt yönden gördüklerinden dikey bileşen karşıt yönlerde büyür:
+
+```
+CW  dikey spin: Δ = −0.254  (negatif — elektrik alan sol taraftan etkiyor)
+CCW dikey spin: Δ = +0.254  (pozitif — elektrik alan sağ taraftan etkiyor)
+```
+
+Zıt yönde ✓ · Tam simetrik ✓ · Beklenen fizikle örtüşüyor ✓
